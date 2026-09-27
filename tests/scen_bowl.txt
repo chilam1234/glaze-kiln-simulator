@@ -1,0 +1,7 @@
+__sim.setShape('bowl')
+__sim.pour('celadon', 1.0, 'below', 0.75)
+__sim.brushBand('crackle', 0.45, 0.7, 0.28)
+FIRE
+SHOT a 25,38
+SHOT close 25,60,0.6
+SHOT side 25,8,0.7

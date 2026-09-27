@@ -1,0 +1,10 @@
+__sim.setShape('vase')
+__sim.pour('tenmoku', 0.66, 'below', 0.6)
+__sim.brushBand('copper', 0.6, 0.7, 0.13)
+__sim.brushBand('copper', 0.67, 0.7, 0.13)
+__sim.brushBand('shino', 0.93, 0.7, 0.16)
+__sim.brushBand('shino', 0.985, 0.7, 0.12)
+FIRE
+SHOT a 20,14
+SHOT close 20,5,0.5
+SHOT top 20,45,0.55
