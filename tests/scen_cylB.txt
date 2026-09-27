@@ -1,0 +1,9 @@
+__sim.setShape('cylinder')
+__sim.pour('matte', 0.45, 'below', 0.6)
+__sim.pour('cobalt', 0.4, 'above', 0.6)
+__sim.brushBand('ash', 0.93, 0.8, 0.15)
+__sim.brushBand('ash', 0.85, 0.8, 0.15)
+__sim.setSeed(20260926)
+FIRE
+SHOT a 20,14
+SHOT top 20,40,0.6

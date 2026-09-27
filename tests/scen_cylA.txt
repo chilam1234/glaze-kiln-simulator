@@ -1,0 +1,7 @@
+__sim.setShape('cylinder')
+__sim.pour('shino', 0.6, 'below', 0.7)
+__sim.pour('tenmoku', 0.4, 'above', 0.6)
+__sim.setSeed(20260926)
+FIRE
+SHOT a 20,14
+SHOT top 20,40,0.6

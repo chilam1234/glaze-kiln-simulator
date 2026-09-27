@@ -1,0 +1,5 @@
+__sim.setShape('cylinder')
+__sim.pour('ash', 0.55, 'above', 0.85)
+__sim.debugDrips(true)
+FIRE
+SHOT a 20,12

@@ -1,0 +1,9 @@
+__sim.setShape('cylinder')
+__sim.pour('ash', 0.7, 'above', 0.8)
+FIRE
+__sim.unfire()
+if (__sim.state!=='raw') throw new Error('unfire failed')
+__sim.brushBand('cobalt', 0.5, 0.6, 0.1)
+SHOT raw 20,14
+FIRE
+SHOT refired 20,14
