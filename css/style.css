@@ -84,6 +84,11 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
 .check { display: block; margin-top: 8px; }
 .hint { color: var(--text-muted); font-size: 11px; margin: 4px 0; }
 .actions { border: none; padding-top: 12px; }
+.cone-fire { margin-bottom: 6px; }
+#cone { margin: 0 0 8px; }
+#cone button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; line-height: 1.15; padding: 7px 8px; }
+#cone button small { font: 600 10px var(--font-body); letter-spacing: 0; color: var(--amaco-slate); }
+#cone button.active small { color: var(--amaco-yellow); }
 #status { color: var(--text-muted); font-size: 12px; min-height: 2.8em; }
 
 .credit { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--amaco-mist); font: 400 10.5px var(--font-body); color: var(--amaco-slate); line-height: 1.35; }
@@ -185,6 +190,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   .check { min-height: 44px; display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
   .check input { width: 20px; height: 20px; }
   .actions { padding-top: 8px; flex: none; }
+  #cone button { min-height: 44px; font-size: 14px; }
+  #cone button small { font-size: 10px; }
   button.fire {
     min-height: 48px;
     font-size: 16px;
@@ -215,13 +222,24 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   .mobile-bar { grid-area: bar; margin: 0; flex-wrap: nowrap; }
   .mobile-tabs button, #touchMode button { min-height: 44px; }
   .actions { display: contents; }
-  button.fire {
+  .cone-fire {
     grid-area: fire;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+  }
+  #cone { margin: 0; flex: 1.1; }
+  #cone button { min-height: 44px; padding: 4px 6px; font-size: 12px; }
+  #cone button small { font-size: 9px; }
+  button.fire {
+    flex: 1;
     width: auto;
     min-height: 44px;
     margin: 0;
     font-size: 15px;
-    align-self: stretch;
     padding: 8px 10px;
   }
   .actions .row { grid-area: aux; margin: 0; }

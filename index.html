@@ -75,7 +75,13 @@
     </section>
   </div>
   <section class="actions">
-    <button id="fireBtn" class="fire">Fire kiln</button>
+    <div class="cone-fire">
+      <div class="row seg" id="cone" title="Orton cones at 60°C/h. Cone 6 is the default look; Cone 10 is hotter, runnier, and (for some glazes) a different colour.">
+        <button type="button" data-cone="6">Cone 6 <small>~1222°C</small></button>
+        <button type="button" data-cone="10">Cone 10 <small>~1285°C</small></button>
+      </div>
+      <button id="fireBtn" class="fire">Fire kiln</button>
+    </div>
     <div class="row">
       <button id="unfireBtn">Unfire / keep painting</button>
       <button id="clearBtn">Clear</button>

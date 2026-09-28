@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildPot, TEX_W, TEX_H } from './pot.js';
-import { GLAZES, FAMILIES } from './glazes.js';
-import { GlazeState, GLAZE_INDEX } from './sim.js';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
+import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { makePotMaterial } from './material.js';
 
 const view = document.getElementById('view');
@@ -71,7 +71,7 @@ const material = makePotMaterial(tex);
 let pot = null, mesh = null, pickMesh = null;
 
 // ---------- UI state ----------
-const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false };
+const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false, cone: 6 };
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
@@ -205,9 +205,11 @@ function animateTo(obj, key, to, ms) {
   return new Promise(res => { const from = obj[key], t0 = performance.now(); const step = () => { const k = Math.min(1, (performance.now() - t0) / ms); obj[key] = from + (to - from) * (k * k * (3 - 2 * k)); k < 1 ? requestAnimationFrame(step) : res(); }; step(); });
 }
 async function fire(seed) {
-  if (ui.simState !== 'raw') return;
+  if (ui.simState === 'firing') return;
+  if (ui.simState !== 'raw' && ui.simState !== 'fired') return;
   ui.simState = 'firing'; document.body.classList.add('sheet-collapsed'); refreshUI(); cursor.visible = false; pourRing.visible = false;
-  setStatus('Firing… heating to cone 10');
+  const temp = ui.cone === 10 ? 1285 : 1222;
+  setStatus(`Firing… heating to cone ${ui.cone} (~${temp}°C, Orton 60°C/h)`);
   const t0 = performance.now();
   await animateTo(glow, 'v', 1, 1000);
   await state.fire(p => setStatus(`Firing… melt & flow ${Math.round(p * 100)}%`), typeof seed === 'number' ? seed : undefined);
@@ -243,6 +245,12 @@ $('pourH').oninput = (e) => { ui.pourH = +e.target.value; showPourRing(ui.pourH)
 $('pourBtn').onclick = () => ui.simState === 'raw' && doPour();
 $('wax').onchange = (e) => { state.waxFoot = e.target.checked; };
 $('fireBtn').onclick = () => fire(); $('unfireBtn').onclick = unfire; $('clearBtn').onclick = clearAll;
+document.querySelectorAll('#cone button').forEach(b => b.onclick = () => {
+  if (ui.simState === 'firing') return;
+  ui.cone = +b.dataset.cone;
+  setFireCone(ui.cone);
+  refreshUI();
+});
 
 document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => b.onclick = () => {
   if (ui.sheet === b.dataset.sheet && !document.body.classList.contains('sheet-collapsed')) {
@@ -280,14 +288,20 @@ function refreshUI() {
   document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('active', b.dataset.tool === ui.tool));
   document.querySelectorAll('#pourMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === ui.pourMode));
   document.querySelectorAll('.glaze').forEach(b => b.classList.toggle('active', b.dataset.glaze === ui.glaze));
-  { const g = GLAZES[GLAZE_INDEX[ui.glaze]]; $('glazeNow').innerHTML = `<b>${g.name}</b>${g.src ? ' &middot; source: ' + g.src : g.like ? ' &middot; ' + g.like : ''}`; }
+  { const g = GLAZES[GLAZE_INDEX[ui.glaze]]; $('glazeNow').innerHTML = `<b>${g.name}</b>${g.src ? ' &middot; source: ' + g.src : g.like ? ' &middot; ' + g.like : ''} &middot; ${cone10Note(g.id)}`; }
   $('thick').value = thickness[ui.glaze]; $('thickOut').textContent = thickness[ui.glaze].toFixed(2);
   $('size').value = ui.size; $('sizeOut').textContent = ui.size.toFixed(2);
   $('pourH').value = ui.pourH; $('pourHOut').textContent = Math.round(ui.pourH * 100) + '%';
   $('brushOpts').hidden = ui.tool !== 'brush'; $('pourOpts').hidden = ui.tool !== 'pour';
-  const raw = ui.simState === 'raw';
-  $('fireBtn').disabled = !raw; $('unfireBtn').disabled = ui.simState !== 'fired'; $('clearBtn').disabled = ui.simState === 'firing';
-  $('pourBtn').disabled = !raw;
+  $('fireBtn').disabled = ui.simState === 'firing'; $('unfireBtn').disabled = ui.simState !== 'fired'; $('clearBtn').disabled = ui.simState === 'firing';
+  $('pourBtn').disabled = ui.simState !== 'raw';
+  document.querySelectorAll('#cone button').forEach(b => b.classList.toggle('active', +b.dataset.cone === ui.cone));
+  document.querySelectorAll('.glaze').forEach(b => {
+    const id = b.dataset.glaze, g = GLAZES[GLAZE_INDEX[id]], pal = ui.cone === 10 ? CONE10[id] : null;
+    const mid = (pal?.fired || g.fired)[Math.min((pal?.fired || g.fired).length - 1, 3)];
+    const hex = Array.isArray(mid) ? mid[1] : mid;
+    const sw = b.querySelector('.sw'); if (sw) sw.style.background = `linear-gradient(135deg, ${g.raw} 50%, ${hex} 50%)`;
+  });
   document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => {
     const on = b.dataset.sheet === ui.sheet && !document.body.classList.contains('sheet-collapsed');
     b.classList.toggle('active', on);
@@ -365,7 +379,8 @@ window.__sim = {
     else if (collapsed === false) document.body.classList.remove('sheet-collapsed');
     refreshUI();
   },
-  setTouchOrbit(v) { ui.touchOrbit = !!v; syncOrbitTouches(); refreshUI(); },
+  setCone(n) { ui.cone = n === 10 ? 10 : 6; setFireCone(ui.cone); refreshUI(); },
+  get cone() { return ui.cone; },
   get touchOrbit() { return ui.touchOrbit; },
   get sheet() { return ui.sheet; },
   get mobile() { return isMobileLayout(); },

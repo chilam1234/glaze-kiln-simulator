@@ -105,3 +105,31 @@ export const PAIRS = {
 export function pairFor(top, under) {
   return PAIRS[top + '|' + under] || null;
 }
+
+// Cone 10 palettes: Lab shift of Sheffield cone 6 cup → cone 10 tile, applied to our cone 6 app colours
+// (cups vs tiles have different lighting, so these are relative shifts, not the raw photo hexes).
+// src: 'ref' = Sheffield cone 10 sample exists; omitted entries are estimated (physics + mild iron browning only).
+export const CONE10 = {
+  celadon: { src: 'ref', fired: ['#d0be80', '#beb374', '#91965b', '#617a43', '#334222'], breakCol: '#e1d895' },
+  tenmoku: { src: 'ref', fired: ['#493c32', '#211b18', '#413422', '#352d21', '#2b2015'], breakCol: '#5a4b3e',
+    vari: [{ type: 'fleck', col: '#847c64', amt: 0.8, dens: 0.07 }, { type: 'mottle', col: '#20170f', amt: 0.55 }] },
+  shino: { src: 'ref', fired: ['#8a3f38', '#9a5348', '#b07d68', '#c49a82', '#d4b090'], breakCol: '#7a3830',
+    vari: { type: 'mottle', col: '#a06850', amt: 0.32 } },
+  rutile: { src: 'ref', fired: ['#4a3814', '#3a2c10', '#4f4b3b', '#484c49', '#403f39', '#251f1b'], breakCol: '#4a3814',
+    vari: [{ type: 'mottle', col: '#71765d', amt: 0.42 }, { type: 'fleck', col: '#4a3a22', amt: 0.55, dens: 0.12 }, { type: 'rutile', col: '#5a4a28', amt: 0.48 }] },
+  seaweed: { src: 'ref', fired: ['#7a6b4a', '#6a5a3c', '#746040', '#5f542d', '#49491d', '#2e3415'], breakCol: '#8a7d5c',
+    vari: [{ type: 'mottle', col: '#2e3415', amt: 0.55 }, { type: 'rutile', col: '#6a5a38', amt: 0.6 }, { type: 'float', col: '#5a5840', amt: 0.3 }] },
+  ironred: { src: 'ref', fired: ['#875f50', '#7a4a3d', '#603d33', '#4e2c24', '#3c2118'], breakCol: '#916a59',
+    vari: [{ type: 'fleck', col: '#2a1814', amt: 0.75, dens: 0.1 }, { type: 'mottle', col: '#683f32', amt: 0.35 }] },
+  oatmeal: { src: 'ref', fired: ['#6c654b', '#6e6648', '#6a633d', '#5c5738', '#4a4326'], breakCol: '#78776a',
+    vari: [{ type: 'fleck', col: '#3d3820', amt: 0.85, dens: 0.1 }, { type: 'mottle', col: '#4a4530', amt: 0.5 }] },
+  bronze: { src: 'ref', fired: ['#8a8474', '#80786a', '#867b59', '#7a7464', '#6e6860'], breakCol: '#5a564c',
+    vari: { type: 'mottle', col: '#a8a090', amt: 0.4 } },
+  // iron-bearing glazes with no cone 10 photo: mild warmer/darker only
+  ash: { src: 'est', fired: ['#8c6836', '#866f34', '#6e6c34', '#576639', '#3c543f'] },
+  amber: { src: 'est', fired: ['#fcd295', '#fcca87', '#f9bc73', '#f0aa5e', '#dc9344'], breakCol: '#ffdba7' },
+  blackmatte: { src: 'est', fired: ['#61554d', '#493f3b', '#3c342f', '#342b27'], breakCol: '#786d67' },
+};
+export function cone10Note(id) {
+  return CONE10[id]?.src === 'ref' ? 'cone 10: Sheffield PC chart' : 'cone 10: estimated';
+}
