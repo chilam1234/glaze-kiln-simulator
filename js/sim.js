@@ -2,7 +2,7 @@
 // can overlap per texel and we know which is on top). Painting, pouring, CPU firing simulation (leveling,
 // gravity flow with drips), and composition into the textures the shader samples.
 import { TEX_W, TEX_H } from './pot.js';
-import { GLAZES, pairFor } from './glazes.js';
+import { GLAZES, pairFor, CONE10 } from './glazes.js';
 import { fbm3, voronoi3 } from './noise.js';
 
 const W = TEX_W, H = TEX_H, N = W * H;
@@ -16,9 +16,42 @@ const LUT = new Uint8Array(4097);
 for (let i = 0; i <= 4096; i++) { const v = i / 4096; LUT[i] = Math.round(255 * (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)); }
 const toS = v => LUT[(clamp01(v) * 4096) | 0];
 
-const G = GLAZES.map(g => ({ ...g, rawL: hexLin(g.raw), stopsL: g.fired.map(s => [s[0], hexLin(s[1]), s[2], s[3]]),
-  breakL: g.breakCol ? hexLin(g.breakCol) : null, variA: (g.vari ? [].concat(g.vari) : []).map(v => ({ ...v, L: hexLin(v.col) })),
-  transl: g.transl || 0, float: g.float ?? 0.3, rutile: g.rutile || 0, iron: g.iron || 0, metal: g.metal || 0 }));
+let G = [];
+let fireCone = 6;
+function buildGlazeTable(cone) {
+  const c10 = cone === 10;
+  return GLAZES.map(g => {
+    const pal = c10 ? CONE10[g.id] : null;
+    const fired = pal?.fired
+      ? g.fired.map((s, i) => pal.fired[i] ? [s[0], pal.fired[i], s[2], s[3]] : s)
+      : g.fired;
+    const stops = fired.map(s => {
+      let rough = s[3];
+      if (c10) rough = rough > 0.15 ? 0.15 + (rough - 0.15) * 0.55 : rough * 0.85;
+      return [s[0], s[1], s[2], rough];
+    });
+    const breakCol = pal?.breakCol || g.breakCol;
+    const vari = pal?.vari !== undefined ? pal.vari : g.vari;
+    return {
+      ...g,
+      fired: stops,
+      breakCol,
+      vari,
+      fluidity: c10 ? Math.min(1.45, g.fluidity * 1.38) : g.fluidity,
+      poolAmt: c10 ? g.poolAmt * 1.22 : g.poolAmt,
+      float: c10 ? Math.min(1, (g.float ?? 0.3) * 1.12) : (g.float ?? 0.3),
+      breakAmt: c10 ? Math.min(1.15, g.breakAmt * 1.08) : g.breakAmt,
+      rawL: hexLin(g.raw),
+      stopsL: stops.map(s => [s[0], hexLin(s[1]), s[2], s[3]]),
+      breakL: breakCol ? hexLin(breakCol) : null,
+      variA: (vari ? [].concat(vari) : []).map(v => ({ ...v, L: hexLin(v.col) })),
+      transl: g.transl || 0, rutile: g.rutile || 0, iron: g.iron || 0, metal: g.metal || 0,
+    };
+  });
+}
+G = buildGlazeTable(6);
+export function setFireCone(cone) { fireCone = cone === 10 ? 10 : 6; G = buildGlazeTable(fireCone); }
+export function getFireCone() { return fireCone; }
 const NG = G.length, RUTILE_GOLD = hexLin('#9a6630'), RUTILE_CREAM = hexLin('#d9c9a0');
 const nz = v => clamp01((v - 0.5) * 3.2 + 0.5);   // stretch fbm (clustered around 0.5) to ~0..1
 export const GLAZE_INDEX = Object.fromEntries(GLAZES.map((g, i) => [g.id, i]));
@@ -163,10 +196,11 @@ export class GlazeState {
     const fl = actG.map(q => G[q].fluidity);
     const t0 = performance.now();
     const tmp = new Float32Array(N);
+    const cone10 = fireCone === 10;
     // 1) melt leveling: brush marks relax (anisotropic small blur, stronger for fluid glazes)
     for (let n = 0; n < A; n++) {
       const a = act[n], c = 0.12 + 0.3 * fl[n];
-      for (let pass = 0; pass < 3; pass++) {
+      for (let pass = 0; pass < (cone10 ? 4 : 3); pass++) {
         for (let k = 0; k < H; k++) for (let j = 0; j < W; j++) {
           const i = k * W + j, l = k * W + ((j + W - 1) % W), rr = k * W + ((j + 1) % W), up = k < H - 1 ? i + W : i, dn = k > 0 ? i - W : i;
           tmp[i] = a[i] + c * 0.25 * (a[l] + a[rr] + a[up] + a[dn] - 4 * a[i]);
@@ -177,14 +211,14 @@ export class GlazeState {
     // 1b) long-range gravity redistribution: a cheap 1D run along the profile (per row: covered fraction + mean
     //     thickness of the covered part) for many steps per glaze. Glaze thickens toward the foot, bowl bottoms and the
     //     lower edge of a band, and thins high on walls; mapped back as a per-row ratio. The 2D passes add local runs.
-    const T0 = 0.42;
+    const T0 = cone10 ? 0.34 : 0.42;
     const stpAll = actG.map(q => Uint16Array.from(this.stamp[q]));
     for (let n = 0; n < A; n++) {
       const a = act[n], f = new Float64Array(H), tc = new Float64Array(H);
       for (let k = 0; k < H; k++) { let s1 = 0, c1 = 0; for (let j = 0; j < W; j++) { const t = a[k * W + j]; if (t > 0.05) { s1 += t; c1++; } } f[k] = c1 / W; tc[k] = c1 ? s1 / c1 : 0; }
       const fe = new Float64Array(H); for (let k = 0; k < H; k++) fe[k] = Math.max(f[k], 0.03);
       const T1 = Float64Array.from(tc), D = new Float64Array(H), c = 0.5 * fl[n];
-      for (let it = 0; it < 900; it++) {
+      for (let it = 0; it < (cone10 ? 1100 : 900); it++) {
         D.fill(0);
         for (let k = 0; k < H; k++) {
           const dir = R.dir[k]; if (!dir || R.wax[k]) continue; const kd = k + dir; if (kd < 0 || kd >= H || R.wax[kd] || f[kd] < 0.05) continue;   // sheet stops at the edge of the glazed area; drips carry it on
@@ -203,7 +237,7 @@ export class GlazeState {
     const applyDrips = this.addDrips(act, actG, fl, stp, T0);   // paths now, deposits after the sheet flow
     onProgress(0.1);
     // 2) gravity flow: film flux ~ excess * thickness (kinematic wave -> beads/drips), streak noise -> rivulets
-    const ITER = 150, dls = act.map(() => new Float32Array(N)), kq = 0.3;
+    const ITER = cone10 ? 190 : 150, dls = act.map(() => new Float32Array(N)), kq = 0.3;
     // flow rate modulation: gentle sheet variation + sparse narrow "drip channels" (object-space noise stretched vertically)
     const rowMod = new Float32Array(N), chan = new Float32Array(N);
     {
