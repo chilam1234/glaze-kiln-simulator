@@ -6,6 +6,9 @@ import json, os, sys, threading, time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from playwright.sync_api import sync_playwright
 
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 OUT = os.path.join(ROOT, 'shots')
 ART = '/opt/cursor/artifacts'
@@ -15,46 +18,36 @@ CHROME = '/usr/bin/google-chrome'
 ARGS = ['--use-angle=swiftshader', '--use-gl=angle', '--enable-unsafe-swiftshader',
         '--ignore-gpu-blocklist', '--enable-webgl']
 
-TOUCH_DRAG = '''([pts]) => {
-  const el = document.querySelector('#view canvas');
-  const fire = (type, x, y, id, buttons) => {
-    const ev = new PointerEvent(type, {
-      bubbles: true, cancelable: true, composed: true,
-      pointerId: id, pointerType: 'touch', isPrimary: id === 21,
-      clientX: x, clientY: y, screenX: x, screenY: y,
-      button: 0, buttons,
-      width: 24, height: 24, pressure: buttons ? 0.5 : 0,
-    });
-    el.dispatchEvent(ev);
-  };
-  fire('pointerdown', pts[0].x, pts[0].y, 21, 1);
-  for (let i = 1; i < pts.length; i++) fire('pointermove', pts[i].x, pts[i].y, 21, 1);
-  fire('pointerup', pts[pts.length - 1].x, pts[pts.length - 1].y, 21, 0);
-}'''
+def cdp(page):
+    sess = getattr(page, '_cdp', None)
+    if sess is None:
+        sess = page.context.new_cdp_session(page)
+        page._cdp = sess
+    return sess
 
-TWO_FINGER = '''([a0, a1, b0, b1]) => {
-  const el = document.querySelector('#view canvas');
-  const fire = (type, x, y, id, buttons, primary) => {
-    const ev = new PointerEvent(type, {
-      bubbles: true, cancelable: true, composed: true,
-      pointerId: id, pointerType: 'touch', isPrimary: !!primary,
-      clientX: x, clientY: y, screenX: x, screenY: y,
-      button: 0, buttons,
-      width: 24, height: 24, pressure: buttons ? 0.5 : 0,
-    });
-    el.dispatchEvent(ev);
-  };
-  const steps = 8;
-  fire('pointerdown', a0.x, a0.y, 31, 1, true);
-  fire('pointerdown', b0.x, b0.y, 32, 1, false);
-  for (let s = 1; s <= steps; s++) {
-    const k = s / steps;
-    fire('pointermove', a0.x + (a1.x - a0.x) * k, a0.y + (a1.y - a0.y) * k, 31, 1, true);
-    fire('pointermove', b0.x + (b1.x - b0.x) * k, b0.y + (b1.y - b0.y) * k, 32, 1, false);
-  }
-  fire('pointerup', a1.x, a1.y, 31, 0, true);
-  fire('pointerup', b1.x, b1.y, 32, 0, false);
-}'''
+
+def _pts(points, ids):
+    return [{'x': p['x'], 'y': p['y'], 'id': ids[i], 'radiusX': 14, 'radiusY': 14, 'force': 0.5}
+            for i, p in enumerate(points)]
+
+
+def cdp_drag(page, pts, pid=0):
+    s = cdp(page)
+    s.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': _pts([pts[0]], [pid])})
+    for p in pts[1:]:
+        s.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': _pts([p], [pid])})
+    s.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+
+
+def cdp_two_finger(page, a0, a1, b0, b1, steps=12):
+    s = cdp(page)
+    s.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': _pts([a0, b0], [0, 1])})
+    for k in range(1, steps + 1):
+        t = k / steps
+        a = {'x': a0['x'] + (a1['x'] - a0['x']) * t, 'y': a0['y'] + (a1['y'] - a0['y']) * t}
+        b = {'x': b0['x'] + (b1['x'] - b0['x']) * t, 'y': b0['y'] + (b1['y'] - b0['y']) * t}
+        s.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': _pts([a, b], [0, 1])})
+    s.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
 
 
 def fail(msg):
@@ -124,36 +117,41 @@ def touch_paint(page, glaze='tenmoku'):
     page.wait_for_timeout(300)
     before = dict(page.evaluate('__sim.stats()')).get(glaze, 0)
     pts = [page.evaluate(f'__sim.screenAt(0.55, {a})') for a in (-55, -25, 0, 25, 55)]
-    page.evaluate(TOUCH_DRAG, pts)
+    if not all(p and p.get('x') is not None for p in pts):
+        raise RuntimeError(f'bad screenAt points: {pts}')
+    cdp_drag(page, pts)
     page.wait_for_timeout(200)
     after = dict(page.evaluate('__sim.stats()')).get(glaze, 0)
     return before, after
 
 
 def touch_orbit(page):
+    page.evaluate('__sim.setTouchOrbit(false)')
     page.evaluate('__sim.setView(20, 12)')
     page.wait_for_timeout(200)
     before = page.evaluate('__sim.getView()')
     rect = page.locator('#view canvas').bounding_box()
-    cx, cy = rect['x'] + rect['width'] * 0.72, rect['y'] + rect['height'] * 0.4
-    page.evaluate(TWO_FINGER, [
-        {'x': cx - 30, 'y': cy},
-        {'x': cx + 50, 'y': cy + 10},
-        {'x': cx - 30, 'y': cy + 50},
-        {'x': cx + 50, 'y': cy + 60},
-    ])
-    page.wait_for_timeout(400)
+    cx = rect['x'] + rect['width'] * 0.78
+    cy = rect['y'] + rect['height'] * 0.38
+    cdp_two_finger(
+        page,
+        {'x': cx - 28, 'y': cy},
+        {'x': cx + 90, 'y': cy + 8},
+        {'x': cx - 28, 'y': cy + 46},
+        {'x': cx + 90, 'y': cy + 54},
+    )
+    page.wait_for_timeout(500)
     two = page.evaluate('__sim.getView()')
     page.evaluate('__sim.setTouchOrbit(true)')
-    page.wait_for_timeout(50)
+    page.wait_for_timeout(80)
     rect = page.locator('#view canvas').bounding_box()
-    x0, y0 = rect['x'] + rect['width'] * 0.65, rect['y'] + rect['height'] * 0.35
-    page.evaluate(TOUCH_DRAG, [
+    x0, y0 = rect['x'] + rect['width'] * 0.7, rect['y'] + rect['height'] * 0.32
+    cdp_drag(page, [
         {'x': x0, 'y': y0},
-        {'x': x0 + 80, 'y': y0 + 30},
-        {'x': x0 + 140, 'y': y0 + 40},
+        {'x': x0 + 70, 'y': y0 + 16},
+        {'x': x0 + 140, 'y': y0 + 22},
     ])
-    page.wait_for_timeout(400)
+    page.wait_for_timeout(500)
     one = page.evaluate('__sim.getView()')
     page.evaluate('__sim.setTouchOrbit(false)')
     return before, two, one
@@ -219,9 +217,13 @@ def run():
         def mobile_context(dev, landscape=False):
             kwargs = dict(dev)
             if landscape:
-                vw, vh = kwargs['viewport']['width'], kwargs['viewport']['height']
-                if vw < vh:
-                    kwargs['viewport'] = {'width': vh, 'height': vw}
+            ua = kwargs.get('user_agent') or kwargs.get('userAgent') or ''
+            if 'iPhone' in ua:
+                kwargs['viewport'] = {'width': 844, 'height': 390}
+                else:
+                    vw, vh = kwargs['viewport']['width'], kwargs['viewport']['height']
+                    if vw < vh:
+                        kwargs['viewport'] = {'width': max(vh, 720), 'height': min(vw, 430)}
             kwargs['has_touch'] = True
             return browser.new_context(**kwargs)
 
@@ -241,7 +243,7 @@ def run():
                 failed.append(f'{label}: mobile bar hidden')
             if not info['fire']['visible'] or info['fire']['h'] < 44:
                 failed.append(f'{label}: fire button not prominent ({info["fire"]})')
-            if info['view']['h'] < info['inner']['h'] * 0.38:
+            if info['view']['h'] < info['inner']['h'] * (0.5 if info['inner']['h'] < 500 else 0.38):
                 failed.append(f'{label}: canvas too short {info["view"]["h"]} vs {info["inner"]["h"]}')
             if info['dprCap'] > 2.01:
                 failed.append(f'{label}: dpr not capped ({info["dprCap"]})')
@@ -276,20 +278,23 @@ def run():
                 page.wait_for_timeout(300)
                 save_shot(page, shots['before'])
 
+            try:
+                cdp(page).send('Input.dispatchTouchEvent', {'type': 'touchCancel', 'touchPoints': []})
+            except Exception:
+                pass
+            page.evaluate('__sim.setSeed(20260928)')
+            t0 = time.time()
+            print(f'  clicking fire…')
+            page.evaluate('document.getElementById("fireBtn").click()')
+            page.wait_for_function('window.__sim.state === "fired"', timeout=120000)
+            print(f'  fired in {time.time() - t0:.1f}s (sim {page.evaluate("Math.round(__sim.fireMs)")} ms)')
+            if page.evaluate('__sim.state') != 'fired':
+                failed.append(f'{label}: fire did not complete')
+            page.evaluate('__sim.setView(20, 12)')
+            page.wait_for_timeout(500)
             if shots.get('fire'):
-                page.evaluate('__sim.setSeed(20260928)')
-                t0 = time.time()
-                page.click('#fireBtn')
-                page.wait_for_function('window.__sim.state === "fired"', timeout=240000)
-                print(f'  fired in {time.time() - t0:.1f}s (sim {page.evaluate("Math.round(__sim.fireMs)")} ms)')
-                if page.evaluate('__sim.state') != 'fired':
-                    failed.append(f'{label}: fire did not complete')
-                page.evaluate('__sim.setView(20, 12)')
-                page.wait_for_timeout(500)
                 save_shot(page, shots['fire'])
-
             if shots.get('land'):
-                page.wait_for_timeout(200)
                 save_shot(page, shots['land'])
 
             page.close()

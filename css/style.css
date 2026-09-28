@@ -196,15 +196,62 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #panel button, #panel label, #panel input { touch-action: manipulation; }
 }
 
-/* Landscape phones: keep a thin always-on bar; the sheet overlays the canvas so the pot stays large. */
+/* Landscape phones: compact chrome so the pot stays large; sheet overlays the canvas when open. */
 @media (max-height: 520px) and (max-width: 960px) {
-  #panel { position: relative; overflow: visible; }
+  #panel {
+    position: relative;
+    overflow: visible;
+    display: grid;
+    grid-template-columns: 1fr minmax(132px, 28%);
+    grid-template-areas:
+      "bar fire"
+      "aux aux"
+      "status status"
+      "credit credit";
+    column-gap: 8px;
+    row-gap: 4px;
+    padding: 4px 10px calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+  .mobile-bar { grid-area: bar; margin: 0; flex-wrap: nowrap; }
+  .mobile-tabs button, #touchMode button { min-height: 44px; }
+  .actions { display: contents; }
+  button.fire {
+    grid-area: fire;
+    width: auto;
+    min-height: 44px;
+    margin: 0;
+    font-size: 15px;
+    align-self: stretch;
+    padding: 8px 10px;
+  }
+  .actions .row { grid-area: aux; margin: 0; }
+  .actions .row button { min-height: 40px; font-size: 13px; }
+  #status {
+    grid-area: status;
+    order: unset;
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .credit {
+    grid-area: credit;
+    order: unset;
+    margin: 0;
+    padding-top: 2px;
+    font-size: 9px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .sheet {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 100%;
-    max-height: min(70vh, 260px);
+    max-height: min(70vh, 240px);
     background: var(--panel-bg);
     border-top: 1px solid var(--panel-border);
     box-shadow: 0 -8px 24px rgba(0, 18, 36, .18);

@@ -21,6 +21,12 @@ function syncAppSize() {
 }
 syncAppSize();
 
+(function () {
+  const spc = Element.prototype.setPointerCapture, rpc = Element.prototype.releasePointerCapture;
+  Element.prototype.setPointerCapture = function (id) { try { spc.call(this, id); } catch (_) {} };
+  Element.prototype.releasePointerCapture = function (id) { try { rpc.call(this, id); } catch (_) {} };
+})();
+
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
