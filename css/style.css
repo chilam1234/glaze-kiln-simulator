@@ -37,11 +37,13 @@
   --font-btn: "Barlow Condensed", "Roboto Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; font: 13px/1.4 var(--font-body); color: var(--text); background: var(--scene-bg); overflow: hidden; user-select: none; -webkit-user-select: none; }
+html, body { margin: 0; height: 100%; font: 13px/1.4 var(--font-body); color: var(--text); background: var(--scene-bg); overflow: hidden; user-select: none; -webkit-user-select: none; overscroll-behavior: none; }
 body { display: flex; }
 #panel { width: 270px; flex: none; padding: 14px 16px; background: var(--panel-bg); border-right: 1px solid var(--panel-border); box-shadow: 1px 0 0 rgba(0, 18, 36, .06); overflow-y: auto; }
-#view { flex: 1; position: relative; }
+#view { flex: 1; position: relative; min-width: 0; min-height: 0; }
 #view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.mobile-bar, .mobile-only { display: none; }
+.sheet { display: contents; }
 h1 { font: 400 20px/1.2 var(--font-head); color: var(--amaco-ink); margin: 0 0 10px; letter-spacing: .01em; border-bottom: 3px solid var(--amaco-yellow); padding-bottom: 6px; }
 h1 span { font: 600 11px var(--font-body); color: var(--amaco-navy); }
 h2 { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .1em; color: var(--amaco-navy); margin: 14px 0 6px; }
@@ -88,3 +90,126 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
 .glaze .nm { line-height: 1.15; }
 .glaze .nm small { display: block; font: 600 10px var(--font-body); color: var(--amaco-slate); letter-spacing: .02em; }
 .glaze .nm { white-space: normal; }
+
+/* Phones (portrait ~360–430px) and landscape phones (short viewport). Desktop sidebar stays as-is. */
+@media (max-width: 700px), (max-height: 520px) and (max-width: 960px) {
+  html, body {
+    height: 100%;
+    height: 100dvh;
+    max-height: var(--app-h, 100dvh);
+    width: 100%;
+    width: var(--app-w, 100%);
+  }
+  body {
+    flex-direction: column;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+    position: fixed;
+    inset: 0;
+  }
+  #view {
+    order: 1;
+    flex: 1 1 auto;
+    min-height: 0;
+    touch-action: none;
+    -webkit-touch-callout: none;
+  }
+  #panel {
+    order: 2;
+    width: 100%;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    max-height: none;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
+    border-right: none;
+    border-top: 1px solid var(--panel-border);
+    box-shadow: 0 -4px 18px rgba(0, 18, 36, .12);
+  }
+  #panel > h1 { display: none; }
+  .desktop-only { display: none; }
+  .mobile-only { display: block; }
+  .mobile-bar {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin: 0 0 6px;
+    flex: none;
+    flex-wrap: wrap;
+  }
+  .mobile-tabs {
+    display: flex;
+    flex: 1;
+    gap: 6px;
+    min-width: 0;
+  }
+  .mobile-tabs button, #touchMode button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 6px;
+    font-size: 14px;
+  }
+  #touchMode { flex: 0 0 auto; width: auto; margin: 0; min-width: 0; }
+  .sheet {
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    max-height: min(38vh, 280px);
+    flex: 0 1 auto;
+    min-height: 0;
+    padding-right: 2px;
+  }
+  body.sheet-collapsed .sheet { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .sheet > :not([data-sheet="pot"]) { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet > :not([data-sheet="glaze"]) { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="tool"] .sheet > :not([data-sheet="tool"]) { display: none; }
+  #panel h2 { margin: 4px 0 6px; }
+  section { padding-bottom: 6px; }
+  #shapes { gap: 6px; margin: 0; }
+  #shapes button { min-height: 44px; padding: 8px 4px; font-size: 14px; }
+  #glazes {
+    max-height: none;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .glaze { min-height: 44px; padding: 6px 8px; font-size: 13px; }
+  .glaze .sw { width: 22px; height: 22px; }
+  #tools button, #pourMode button, #pourBtn, .actions .row button {
+    min-height: 44px;
+    font-size: 14px;
+  }
+  .slider { margin: 10px 0 4px; }
+  .slider input { min-height: 32px; }
+  .check { min-height: 44px; display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
+  .check input { width: 20px; height: 20px; }
+  .actions { padding-top: 8px; flex: none; }
+  button.fire {
+    min-height: 48px;
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+  #status { min-height: 0; margin: 4px 0 0; font-size: 11px; order: 3; }
+  .actions { order: 4; }
+  .credit { order: 5; margin: 6px 0 0; padding-top: 6px; font-size: 9.5px; }
+  #panel button, #panel label, #panel input { touch-action: manipulation; }
+}
+
+/* Landscape phones: keep a thin always-on bar; the sheet overlays the canvas so the pot stays large. */
+@media (max-height: 520px) and (max-width: 960px) {
+  #panel { position: relative; overflow: visible; }
+  .sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    max-height: min(70vh, 260px);
+    background: var(--panel-bg);
+    border-top: 1px solid var(--panel-border);
+    box-shadow: 0 -8px 24px rgba(0, 18, 36, .18);
+    padding: 8px 12px;
+    z-index: 6;
+  }
+  body.sheet-collapsed .sheet { display: none; }
+}

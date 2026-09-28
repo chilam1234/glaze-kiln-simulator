@@ -9,10 +9,21 @@ import { makePotMaterial } from './material.js';
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
 const setStatus = (t) => { statusEl.textContent = t; };
+const MOBILE_MQ = '(max-width: 700px), (max-height: 520px) and (max-width: 960px)';
+const isMobileLayout = () => window.matchMedia(MOBILE_MQ).matches;
+
+function syncAppSize() {
+  const vv = window.visualViewport;
+  const h = vv ? vv.height : window.innerHeight;
+  const w = vv ? vv.width : window.innerWidth;
+  document.documentElement.style.setProperty('--app-h', h + 'px');
+  document.documentElement.style.setProperty('--app-w', w + 'px');
+}
+syncAppSize();
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 0.95;
 renderer.shadowMap.enabled = true;
@@ -29,7 +40,7 @@ const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
 const key = new THREE.DirectionalLight(0xfff6ee, 1.8);
 key.position.set(3.5, 6, 4);
 key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
+key.shadow.mapSize.set(isMobileLayout() ? 1024 : 2048, isMobileLayout() ? 1024 : 2048);
 key.shadow.camera.left = -2.5; key.shadow.camera.right = 2.5; key.shadow.camera.top = 3.5; key.shadow.camera.bottom = -1.5;
 key.shadow.camera.near = 1; key.shadow.camera.far = 20;
 key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = 6;
@@ -54,7 +65,7 @@ const material = makePotMaterial(tex);
 let pot = null, mesh = null, pickMesh = null;
 
 // ---------- UI state ----------
-const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw' };
+const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false };
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
@@ -101,33 +112,58 @@ function showPourRing(hFrac) {
   pourRing.position.set(0, y, 0); pourRing.scale.set(r * 1.01, 1, r * 1.01); pourRing.visible = ui.tool === 'pour' && ui.simState === 'raw';
 }
 
-let painting = false, lastScreen = null;
+let painting = false, lastScreen = null, paintPointer = null;
+const touchPointers = new Set();
 function dabFromHit(h) { state.dab(h.uv.x, h.uv.y, ui.size, GLAZE_INDEX[ui.glaze], thickness[ui.glaze]); }
+function syncOrbitTouches() {
+  // Paint: one-finger ignored by OrbitControls (we paint). Two-finger dolly+rotate.
+  // Orbit: one-finger rotate, two-finger dolly+rotate.
+  controls.touches.ONE = ui.touchOrbit ? THREE.TOUCH.ROTATE : -1;
+  controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE;
+}
+function canPaintTouch() {
+  return !ui.touchOrbit && touchPointers.size < 2;
+}
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.minDistance = 2; controls.maxDistance = 20; controls.maxPolarAngle = Math.PI * 0.62;
+syncOrbitTouches();
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') touchPointers.add(e.pointerId);
+  if (e.pointerType === 'touch' && touchPointers.size >= 2) {
+    painting = false; lastScreen = null; paintPointer = null; controls.enabled = true;
+    return;
+  }
   if (e.button !== 0 || ui.simState !== 'raw' || !mesh) return;
+  if (e.pointerType === 'touch' && !canPaintTouch()) return;
   const h = hitAt(e.clientX, e.clientY);
   if (!h) return;
   e.preventDefault();
   if (ui.tool === 'brush') {
-    controls.enabled = false; painting = true; lastScreen = [e.clientX, e.clientY];
+    if (e.pointerType !== 'touch') controls.enabled = false;
+    painting = true; lastScreen = [e.clientX, e.clientY]; paintPointer = e.pointerId;
     renderer.domElement.setPointerCapture(e.pointerId);
     state.beginStroke(); dabFromHit(h);
   } else {
-    controls.enabled = false;
+    if (e.pointerType !== 'touch') controls.enabled = false;
     ui.pourH = Math.min(1, Math.max(0, h.point.y / pot.height));
     doPour(); refreshUI();
   }
-});
+}, { capture: true });
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (!mesh) return;
   const h = hitAt(e.clientX, e.clientY);
-  if (h && ui.tool === 'brush' && ui.simState === 'raw') {
+  if (e.pointerType !== 'touch' && h && ui.tool === 'brush' && ui.simState === 'raw') {
     cursor.visible = true; cursor.position.copy(h.point);
     const n = h.face.normal.clone().transformDirection(mesh.matrixWorld);
     cursor.lookAt(h.point.clone().add(n)); cursor.scale.setScalar(ui.size);
-  } else cursor.visible = false;
+  } else if (e.pointerType === 'touch') cursor.visible = false;
+  else if (!h) cursor.visible = false;
   if (ui.tool === 'pour' && h && ui.simState === 'raw') showPourRing(h.point.y / pot.height);
-  if (!painting) return;
+  if (!painting || (paintPointer !== null && e.pointerId !== paintPointer)) return;
+  if (e.pointerType === 'touch' && touchPointers.size >= 2) { painting = false; return; }
   // interpolate in screen space so fast drags still produce continuous strokes
   const [lx, ly] = lastScreen, dx = e.clientX - lx, dy = e.clientY - ly;
   const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 6));
@@ -137,14 +173,19 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   }
   lastScreen = [e.clientX, e.clientY];
 });
-const endStroke = () => { painting = false; controls.enabled = true; };
+const endStroke = (e) => {
+  if (e && e.pointerType === 'touch') touchPointers.delete(e.pointerId);
+  if (e && paintPointer !== null && e.pointerId !== paintPointer && touchPointers.size) return;
+  painting = false; paintPointer = null; controls.enabled = true;
+};
 renderer.domElement.addEventListener('pointerup', endStroke);
 renderer.domElement.addEventListener('pointercancel', endStroke);
 renderer.domElement.addEventListener('pointerleave', () => { cursor.visible = false; });
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.dampingFactor = 0.08;
-controls.minDistance = 2; controls.maxDistance = 20; controls.maxPolarAngle = Math.PI * 0.62;
+view.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('gesturechange', (e) => e.preventDefault());
+document.addEventListener('gestureend', (e) => e.preventDefault());
 
 function doPour() {
   state.pour(GLAZE_INDEX[ui.glaze], ui.pourH, ui.pourMode, thickness[ui.glaze]);
@@ -159,7 +200,7 @@ function animateTo(obj, key, to, ms) {
 }
 async function fire(seed) {
   if (ui.simState !== 'raw') return;
-  ui.simState = 'firing'; refreshUI(); cursor.visible = false; pourRing.visible = false;
+  ui.simState = 'firing'; document.body.classList.add('sheet-collapsed'); refreshUI(); cursor.visible = false; pourRing.visible = false;
   setStatus('Firing… heating to cone 10');
   const t0 = performance.now();
   await animateTo(glow, 'v', 1, 1000);
@@ -197,6 +238,37 @@ $('pourBtn').onclick = () => ui.simState === 'raw' && doPour();
 $('wax').onchange = (e) => { state.waxFoot = e.target.checked; };
 $('fireBtn').onclick = () => fire(); $('unfireBtn').onclick = unfire; $('clearBtn').onclick = clearAll;
 
+document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => b.onclick = () => {
+  if (ui.sheet === b.dataset.sheet && !document.body.classList.contains('sheet-collapsed')) {
+    document.body.classList.add('sheet-collapsed');
+  } else {
+    ui.sheet = b.dataset.sheet;
+    document.body.dataset.sheet = ui.sheet;
+    document.body.classList.remove('sheet-collapsed');
+  }
+  refreshUI();
+});
+document.querySelectorAll('#touchMode button').forEach(b => b.onclick = () => {
+  ui.touchOrbit = b.dataset.mode === 'orbit';
+  syncOrbitTouches();
+  refreshUI();
+});
+
+function applyLayout() {
+  const mobile = isMobileLayout();
+  document.body.classList.toggle('is-mobile', mobile);
+  document.body.dataset.sheet = ui.sheet;
+  if (!mobile) document.body.classList.remove('sheet-collapsed');
+  else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
+  else if (!document.body.dataset.mobileInit) {
+    document.body.classList.add('sheet-collapsed');
+    document.body.dataset.mobileInit = '1';
+  }
+  syncOrbitTouches();
+}
+window.matchMedia(MOBILE_MQ).addEventListener('change', applyLayout);
+window.addEventListener('orientationchange', () => { setTimeout(applyLayout, 80); });
+
 function refreshUI() {
   document.querySelectorAll('#shapes button').forEach(b => b.classList.toggle('active', b.dataset.shape === ui.shape));
   document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('active', b.dataset.tool === ui.tool));
@@ -210,15 +282,28 @@ function refreshUI() {
   const raw = ui.simState === 'raw';
   $('fireBtn').disabled = !raw; $('unfireBtn').disabled = ui.simState !== 'fired'; $('clearBtn').disabled = ui.simState === 'firing';
   $('pourBtn').disabled = !raw;
+  document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => {
+    const on = b.dataset.sheet === ui.sheet && !document.body.classList.contains('sheet-collapsed');
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#touchMode button').forEach(b => b.classList.toggle('active', (b.dataset.mode === 'orbit') === ui.touchOrbit));
   if (pot) showPourRing(ui.pourH);
 }
 
 // ---------- loop ----------
 function resize() {
+  syncAppSize();
   const w = view.clientWidth, h = view.clientHeight;
+  if (w < 1 || h < 1) return;
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', resize);
+  visualViewport.addEventListener('scroll', resize);
+}
+if (typeof ResizeObserver === 'function') new ResizeObserver(resize).observe(view);
 const glowCol = new THREE.Color(), BG = new THREE.Color('#dcdfe2'), BG_KILN = new THREE.Color('#2e2521');
 function loop() {
   requestAnimationFrame(loop);
@@ -235,6 +320,7 @@ function loop() {
   renderer.render(scene, camera);
 }
 resize();
+applyLayout();
 { const q = new URLSearchParams(location.search).get('seed'); if (q !== null && q !== '') state.fixedSeed = (+q) >>> 0; }
 setShape('vase');
 refreshUI();
@@ -261,6 +347,23 @@ window.__sim = {
     camera.position.set(t.x + Math.sin(az) * Math.cos(el) * d, t.y + Math.sin(el) * d, t.z + Math.cos(az) * Math.cos(el) * d);
     controls.update(); camera.updateMatrixWorld();
   },
+  getView() {
+    const t = controls.target, d = camera.position.distanceTo(t);
+    const az = Math.atan2(camera.position.x - t.x, camera.position.z - t.z);
+    const el = Math.asin(Math.max(-1, Math.min(1, (camera.position.y - t.y) / d)));
+    return { az, el, d, x: camera.position.x, y: camera.position.y, z: camera.position.z };
+  },
+  setSheet(name, collapsed) {
+    if (name) { ui.sheet = name; document.body.dataset.sheet = name; }
+    if (collapsed === true) document.body.classList.add('sheet-collapsed');
+    else if (collapsed === false) document.body.classList.remove('sheet-collapsed');
+    refreshUI();
+  },
+  setTouchOrbit(v) { ui.touchOrbit = !!v; syncOrbitTouches(); refreshUI(); },
+  get touchOrbit() { return ui.touchOrbit; },
+  get sheet() { return ui.sheet; },
+  get mobile() { return isMobileLayout(); },
+  get pixelRatio() { return renderer.getPixelRatio(); },
   // screen (client) coordinates of the outer surface at a height fraction, on the side facing the camera, offset by angle
   screenAt(hFrac, dAngleDeg = 0) {
     const k = outerRow(hFrac), r = pot.rows.r[k], y = pot.rows.y[k];
