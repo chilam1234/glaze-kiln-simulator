@@ -67,6 +67,8 @@ def wide_bowl():
         'handleThick': 0.05,
         'spout': 'lip',
         'spoutSize': 1,
+        'spoutY': 0.5,
+        'spoutMouth': 1,
     }
 
 
@@ -94,6 +96,8 @@ def tall_cylinder():
         'handleThick': 0.055,
         'spout': 'teapot',
         'spoutSize': 1,
+        'spoutY': 0.5,
+        'spoutMouth': 1,
     }
 
 
@@ -282,6 +286,16 @@ def run():
         n_after_del = page.evaluate('() => __sim.getCustom().nodes.length')
         if n_after_del != n_before_del - 1:
             failed.append(f'Delete HUD did not remove a node {n_before_del}->{n_after_del}')
+        page.evaluate('() => __sim.selectNode(2)')
+        page.wait_for_timeout(100)
+        page.evaluate('() => { if (document.activeElement) document.activeElement.blur(); }')
+        n_key0 = page.evaluate('() => __sim.getCustom().nodes.length')
+        page.keyboard.press('Delete')
+        page.wait_for_timeout(250)
+        n_key1 = page.evaluate('() => __sim.getCustom().nodes.length')
+        print(f'Delete key nodes {n_key0} -> {n_key1}')
+        if n_key1 != n_key0 - 1:
+            failed.append(f'Delete key did not remove selected node {n_key0}->{n_key1}')
         # refill for the many-node screenshot on a tall pot
         page.evaluate('(s) => __sim.setCustom(s)', tall_cylinder())
         page.wait_for_timeout(200)
@@ -302,6 +316,91 @@ def run():
         hs = page.evaluate('() => __sim.handleStats()')
         if hs is None:
             fail('C-loop handle missing row stats')
+
+        # spout placement: sliders + on-canvas grips
+        page.evaluate('(s) => __sim.setCustom(s)', tall_cylinder())
+        page.wait_for_timeout(300)
+        page.evaluate('__sim.setView(55, 14)')
+        page.wait_for_timeout(200)
+        giz_root = page.evaluate('() => __sim.gizmoScreen("spoutRoot")')
+        giz_tip = page.evaluate('() => __sim.gizmoScreen("spoutTip")')
+        print('spout gizmos', giz_root, giz_tip)
+        if not giz_root or not giz_tip:
+            fail(f'teapot spout grips missing: root={giz_root} tip={giz_tip}')
+        pose0 = page.evaluate('() => __sim.spoutPose()')
+        print('spout pose0', json.dumps({k: (round(v, 3) if isinstance(v, float) else v) for k, v in pose0.items() if k not in ('root', 'tip')}))
+
+        # drag root up the wall
+        page.mouse.move(giz_root['x'], giz_root['y'])
+        page.mouse.down()
+        page.mouse.move(giz_root['x'], giz_root['y'] - 70, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(350)
+        pose_h = page.evaluate('() => __sim.spoutPose()')
+        print(f'spout root drag yFrac {pose0["yFrac"]:.3f} -> {pose_h["yFrac"]:.3f}')
+        if pose_h['yFrac'] <= pose0['yFrac'] + 0.04:
+            failed.append(f'spout root drag did not raise height {pose0["yFrac"]:.3f}->{pose_h["yFrac"]:.3f}')
+
+        # drag tip up and out (length + tilt together)
+        tip = page.evaluate('() => __sim.gizmoScreen("spoutTip")')
+        if not tip:
+            fail('spout tip grip missing after root drag')
+        page.mouse.move(tip['x'], tip['y'])
+        page.mouse.down()
+        page.mouse.move(tip['x'] + 50, tip['y'] - 55, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(350)
+        pose_t = page.evaluate('() => __sim.spoutPose()')
+        print(f'spout tip drag len {pose_h["len"]:.3f}->{pose_t["len"]:.3f} tilt {pose_h["tilt"]:.3f}->{pose_t["tilt"]:.3f}')
+        if pose_t['len'] <= pose_h['len'] + 0.03 and pose_t['tilt'] <= pose_h['tilt'] + 0.04:
+            failed.append(f'spout tip drag did not change length/tilt {pose_h}->{pose_t}')
+
+        # sliders: high + angled up
+        page.evaluate('''() => __sim.setCustom({
+          handle: 'c', spout: 'teapot', spoutY: 0.78, spoutTilt: 0.62, spoutLen: 1.15,
+          spoutMouth: 1.25, spoutAz: 0, handlePos: 0.18, handleHeight: 0.55
+        })''')
+        page.wait_for_timeout(350)
+        page.evaluate('__sim.setView(50, 16)')
+        page.wait_for_timeout(250)
+        high = page.evaluate('() => __sim.spoutPose()')
+        print('spout high', json.dumps({k: round(high[k], 3) for k in ('yFrac', 'tilt', 'len', 'az', 'mouth')}))
+        if high['yFrac'] < 0.7:
+            failed.append(f'spout height slider did not stick {high["yFrac"]}')
+        if high['tilt'] < 0.45:
+            failed.append(f'spout tilt slider did not stick {high["tilt"]}')
+        if high['len'] < 1.0:
+            failed.append(f'spout length slider did not stick {high["len"]}')
+        save(page, 'custom-spout-high.png')
+
+        # rotate around the pot onto the side (+Z)
+        page.evaluate('() => __sim.setCustom({ spoutAz: Math.PI / 2 })')
+        page.wait_for_timeout(300)
+        page.evaluate('__sim.setView(5, 16)')
+        page.wait_for_timeout(250)
+        side = page.evaluate('() => __sim.spoutPose()')
+        print('spout side az', side['az'])
+        if abs(abs(side['az']) - 1.57) > 0.12:
+            failed.append(f'spout around-pot did not rotate {side["az"]}')
+        save(page, 'custom-spout-side.png')
+
+        # opening size
+        mouth0 = page.evaluate('() => __sim.spoutRadii()')
+        page.evaluate('() => __sim.setCustom({ spoutMouth: 2.0 })')
+        page.wait_for_timeout(250)
+        mouth1 = page.evaluate('() => __sim.spoutRadii()')
+        print('spout mouth', mouth0, mouth1)
+        if not mouth1 or mouth1['tip'] <= mouth0['tip'] * 1.08:
+            failed.append(f'spout opening slider did not widen the mouth {mouth0} -> {mouth1}')
+        if mouth1['root'] < mouth1['tip'] * 1.15:
+            failed.append(f'spout root should stay thicker than a wide mouth {mouth1}')
+
+        # reset a high/angled teapot with handle for paint + fire
+        page.evaluate('''() => __sim.setCustom({
+          handle: 'c', spout: 'teapot', spoutY: 0.74, spoutTilt: 0.5, spoutLen: 1.05,
+          spoutMouth: 1.2, spoutAz: 0, handlePos: 0.16, handleHeight: 0.5
+        })''')
+        page.wait_for_timeout(400)
 
         # paint + pour on the custom wall
         page.evaluate('__sim.setTool("brush")')
@@ -324,15 +423,13 @@ def run():
         # setCustom should refuse while fired
         if page.evaluate('__sim.state') != 'fired':
             failed.append('setCustom while fired should not unfire')
-        page.evaluate('__sim.setView(25, 18)')
+        page.evaluate('__sim.setView(48, 16)')
         page.wait_for_timeout(400)
         save(page, 'custom-fired-cone6.png', full=False)
 
         page.click('#unfireBtn')
         page.wait_for_function('__sim.state === "raw"', timeout=10000)
-        # teapot spout + keep glaze by height
-        page.evaluate('() => __sim.setCustom({ spout: "teapot" })')
-        page.wait_for_timeout(400)
+        # keep the moved teapot spout; check taper still holds
         spout = page.evaluate('() => __sim.spoutRadii()')
         print('spout radii', spout)
         if not spout:
@@ -340,14 +437,17 @@ def run():
         else:
             if spout['root'] < 0.07:
                 failed.append(f'spout root still thin {spout["root"]}')
-            if spout['root'] < spout['tip'] * 1.8:
+            if spout['root'] < spout['tip'] * 1.35:
                 failed.append(f'spout root not thicker than tip {spout}')
+        pose_fire = page.evaluate('() => __sim.spoutPose()')
+        if not pose_fire or pose_fire['yFrac'] < 0.6:
+            failed.append(f'fired pot lost spout placement {pose_fire}')
         page.evaluate(f'__sim.setCone(10); __sim.setSeed({SEED})')
         t0 = time.time()
         page.click('#fireBtn')
         page.wait_for_function('__sim.state === "fired"', timeout=180000)
         print(f'cone 10 fired in {time.time()-t0:.1f}s', page.evaluate('__sim.dripStats'))
-        page.evaluate('__sim.setView(40, 16)')
+        page.evaluate('__sim.setView(50, 16)')
         page.wait_for_timeout(400)
         save(page, 'custom-fired-cone10.png', full=False)
 
@@ -433,6 +533,53 @@ def run():
         if n_phone < 10:
             failed.append(f'mobile could not add many nodes ({n_phone})')
         save(m, 'custom-mobile-many-nodes.png')
+
+        # teapot spout grips in Shape mode (touch drag)
+        m.evaluate('(s) => { s.handle = "c"; s.spout = "teapot"; s.spoutY = 0.55; s.spoutAz = 0; return __sim.setCustom(s); }', tall_cylinder())
+        m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setView(48, 14)')
+        m.wait_for_timeout(400)
+        root_m = m.evaluate('() => __sim.gizmoScreen("spoutRoot")')
+        tip_m = m.evaluate('() => __sim.gizmoScreen("spoutTip")')
+        print('mobile spout grips', root_m, tip_m)
+        if not root_m or not tip_m:
+            failed.append(f'mobile spout grips missing root={root_m} tip={tip_m}')
+        else:
+            y0 = m.evaluate('() => __sim.spoutPose().yFrac')
+            cdp_drag(m, [root_m, {'x': root_m['x'], 'y': root_m['y'] - 36}, {'x': root_m['x'] + 4, 'y': root_m['y'] - 58}])
+            m.wait_for_timeout(450)
+            y1 = m.evaluate('() => __sim.spoutPose().yFrac')
+            print(f'mobile spout root drag {y0:.3f} -> {y1:.3f}')
+            if y1 <= y0 + 0.03:
+                failed.append(f'mobile Shape mode did not drag spout root {y0:.3f}->{y1:.3f}')
+            tip2 = m.evaluate('() => __sim.gizmoScreen("spoutTip")')
+            tilt0 = m.evaluate('() => __sim.spoutPose().tilt')
+            if tip2:
+                cdp_drag(m, [tip2, {'x': tip2['x'] + 18, 'y': tip2['y'] - 28}, {'x': tip2['x'] + 28, 'y': tip2['y'] - 44}])
+                m.wait_for_timeout(400)
+            tilt1 = m.evaluate('() => __sim.spoutPose().tilt')
+            print(f'mobile spout tip tilt {tilt0:.3f} -> {tilt1:.3f}')
+            if tilt1 <= tilt0 + 0.03:
+                failed.append(f'mobile Shape mode did not drag spout tip {tilt0:.3f}->{tilt1:.3f}')
+        # drawer open should not cover the tab bar
+        m.evaluate('__sim.setSheet("pot", false)')
+        m.wait_for_timeout(200)
+        cover = m.evaluate('''() => {
+          const bar = document.getElementById('mobileBar').getBoundingClientRect();
+          const sheet = document.getElementById('sheet').getBoundingClientRect();
+          const tools = document.getElementById('shapeTools').getBoundingClientRect();
+          return { barY: bar.y, barH: bar.height, sheetBottom: sheet.bottom,
+                   toolsBottom: tools.bottom, toolsHidden: document.getElementById('shapeTools').hidden,
+                   innerH: innerHeight };
+        }''')
+        print('mobile spout drawer', json.dumps(cover))
+        if cover['barY'] < 8:
+            failed.append('mobile tab bar not visible with Pot drawer open')
+        m.evaluate('__sim.setSheet("pot", true)')
+        m.wait_for_timeout(150)
+        m.evaluate('__sim.setView(48, 14)')
+        m.wait_for_timeout(250)
+        save(m, 'custom-mobile-spout.png')
 
         # two-finger orbit still works in Shape mode
         view0 = m.evaluate('() => __sim.getView()')

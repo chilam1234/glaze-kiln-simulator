@@ -81,7 +81,9 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 }
 #shapeTools {
   position: absolute; left: 10px; bottom: 12px; z-index: 2;
+  pointer-events: none;
 }
+#shapeTools button { pointer-events: auto; }
 #shapeTools button {
   min-height: 44px; min-width: 108px; padding: 8px 14px; font: 700 13px var(--font-btn);
   letter-spacing: .04em; background: var(--amaco-white); color: var(--amaco-navy);
@@ -193,12 +195,14 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #touchMode button { min-width: 44px; padding: 8px 5px; font-size: 13px; }
   #customOpts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
   #customOpts .hint, #customOpts .dims, #customOpts .node-row,
-  #customOpts h3, #handleType, #spoutType, #handleOpts, #customOpts .check { grid-column: 1 / -1; }
-  #handleOpts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+  #customOpts h3, #handleType, #spoutType, #handleOpts, #spoutOpts, #customOpts .check { grid-column: 1 / -1; }
+  #handleOpts, #spoutOpts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+  #handleOpts .hint, #spoutOpts .hint { grid-column: 1 / -1; }
   #customOpts .node-row button { min-height: 44px; min-width: 44px; flex-basis: 44px; font-size: 22px; }
   #customOpts .node-row button.node-del { flex-basis: auto; min-width: 72px; font-size: 14px; padding: 8px 12px; }
   #customOpts h3 { margin: 8px 0 4px; }
   #dimHud { top: 8px; right: 8px; font-size: 11px; padding: 5px 8px; max-width: 70%; }
+  #shapeTools { bottom: 10px; left: 8px; }
   #sectionOverlay { inset: 4% 4% 8px 4%; }
   .sheet {
     display: block;

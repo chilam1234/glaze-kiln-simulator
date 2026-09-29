@@ -2,7 +2,7 @@
 // (radius, height, normal, curvature-derived edge/cavity maps, gravity direction) used by painting and firing.
 import * as THREE from 'three';
 import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js';
-export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt } from './shape.js';
+export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip } from './shape.js';
 
 export const TEX_W = 1024;   // around the pot (u)
 export const TEX_H = 1024;   // along the profile, foot -> outer wall -> rim -> inner wall -> centre (v)
@@ -247,11 +247,11 @@ function finishPot(kind, def, opts = {}) {
   }
   let handleFrom = H, handleTo = H, spoutFrom = H, spoutTo = H;
   const frame = extras.length ? { cx: new Float32Array(H), cy: new Float32Array(H), cz: new Float32Array(H), nx: new Float32Array(H), ny: new Float32Array(H), nz: new Float32Array(H), bx: new Float32Array(H), by: new Float32Array(H), bz: new Float32Array(H), from: ranges[0].start } : null;
-  const Bv = new THREE.Vector3(0, 0, 1);
   let sepAt = Hp;
   for (const rg of ranges) {
     for (let k = sepAt; k < rg.start; k++) { wax[k] = 1; sep[k] = 1; r[k] = 0.05; y[k] = def.height; w[k] = 0.05; }
     const hd = rg.extra, Hh = Math.max(1, rg.end - rg.start);
+    const Bv = extraBinormal(hd);
     if (hd.kind === 'handle') { handleFrom = rg.start; handleTo = rg.end; }
     if (hd.kind === 'spout') { spoutFrom = rg.start; spoutTo = rg.end; }
     for (let k = rg.start; k < rg.end; k++) {
@@ -285,25 +285,40 @@ function finishPot(kind, def, opts = {}) {
   return { kind, geometry: geo, pickGeometry, rows, height: def.height, waxY: def.waxY, L, outerRadiusAt, elev: def.elev };
 }
 
+function extraBinormal(hd) {
+  return hd.binormal ? hd.binormal.clone().normalize() : new THREE.Vector3(0, 0, 1);
+}
 function extraRadius(hd, t) {
   const r0 = hd.radius, r1 = hd.radiusEnd ?? hd.radius;
   const p = hd.radiusTaper ?? 1;
   const tt = p === 1 ? t : Math.pow(Math.min(1, Math.max(0, t)), p);
-  return r0 + (r1 - r0) * tt;
+  let rad = r0 + (r1 - r0) * tt;
+  if (hd.mouthFlare && t > 0.72) {
+    const f = smooth(0.72, 1, t);
+    rad += (hd.mouthFlare - 1) * r1 * f;
+  }
+  return rad;
+}
+function extraFlat(hd, t) {
+  if (!hd.mouthFlat) return hd.flat;
+  const f = smooth(0.58, 1, t);
+  return hd.flat + (hd.mouthFlat - hd.flat) * f;
 }
 
 // tube around a curve, u around the tube (theta = u*2pi on the N/B frame), v from v0 to v1 along the curve
 function makeTube(hd, NS, SEG, v0, v1 = 1) {
-  const pos = [], nor = [], uv = [], index = [], B = new THREE.Vector3(0, 0, 1);
+  const pos = [], nor = [], uv = [], index = [], B = extraBinormal(hd);
   for (let i = 0; i <= NS; i++) {
     const t = i / NS, c = hd.curve.getPointAt(t), T = hd.curve.getTangentAt(t), Nn = new THREE.Vector3().crossVectors(T, B).normalize();
     const rad = extraRadius(hd, t);
+    const f = extraFlat(hd, t);
+    const cut = (hd.mouthCut || 0) * rad * smooth(0.76, 1, t);
     for (let j = 0; j <= SEG; j++) {
       const th = j / SEG * Math.PI * 2, cs = Math.cos(th), sn = Math.sin(th);
-      const f = hd.flat;
       const ox = Nn.x * cs * rad * f + B.x * sn * rad, oy = Nn.y * cs * rad * f + B.y * sn * rad, oz = Nn.z * cs * rad * f + B.z * sn * rad;
-      pos.push(c.x + ox, c.y + oy, c.z + oz);
-      const nx = Nn.x * cs / f + B.x * sn, ny = Nn.y * cs / f + B.y * sn, nz = Nn.z * cs / f + B.z * sn, nl = Math.hypot(nx, ny, nz);
+      const along = cut * cs;
+      pos.push(c.x + ox + T.x * along, c.y + oy + T.y * along, c.z + oz + T.z * along);
+      const nx = Nn.x * cs / Math.max(0.2, f) + B.x * sn, ny = Nn.y * cs / Math.max(0.2, f) + B.y * sn, nz = Nn.z * cs / Math.max(0.2, f) + B.z * sn, nl = Math.hypot(nx, ny, nz);
       nor.push(nx / nl, ny / nl, nz / nl);
       uv.push(j / SEG, v0 + (v1 - v0) * t);
     }
