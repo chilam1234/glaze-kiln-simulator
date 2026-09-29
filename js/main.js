@@ -939,6 +939,7 @@ window.__sim = {
       if (p.y <= customSpec.nodes[0].y + 0.06 || p.y >= customSpec.nodes[customSpec.nodes.length - 1].y - 0.06) continue;
       v.set(p.r * s, p.y, p.r * c).project(camera);
       const sx = rect.left + (v.x + 1) / 2 * rect.width, sy = rect.top + (1 - v.y) / 2 * rect.height;
+      if (sx < rect.left + 8 || sx > rect.right - 8 || sy < rect.top + 8 || sy > rect.bottom - 8) continue;
       const g = nearestGizmoScreen(sx, sy);
       const clear = g ? g.dist : 80;
       if (clear > bestClear) { bestClear = clear; best = { x: sx, y: sy, r: p.r, height: p.y, clear }; }
