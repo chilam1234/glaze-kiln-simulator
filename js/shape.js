@@ -25,6 +25,13 @@ export function footAndBase(p, o) {
   p.quadraticCurveTo(footOut + 0.02, wallY - 0.02, wallR, wallY);
 }
 
+export const SPOUT_LIMITS = {
+  yFrac: [0.14, 0.88],
+  len: [0.28, 2.55],
+  tilt: [-0.72, 1.15],
+  mouth: [0.45, 2.4],
+};
+
 export function cloneSpec(s) {
   return {
     nodes: s.nodes.map(p => ({ r: p.r, y: p.y })),
@@ -35,8 +42,14 @@ export function cloneSpec(s) {
     handleHeight: s.handleHeight,
     handleWidth: s.handleWidth,
     handleThick: s.handleThick,
+    handleAz: s.handleAz,
     spout: s.spout,
     spoutSize: s.spoutSize,
+    spoutY: s.spoutY,
+    spoutLen: s.spoutLen,
+    spoutTilt: s.spoutTilt,
+    spoutMouth: s.spoutMouth,
+    spoutAz: s.spoutAz,
     source: s.source,
   };
 }
@@ -216,6 +229,75 @@ export function constrainBulge(spec, i, r, y) {
   spec.bulges[i].y = Math.min(hi, Math.max(lo, y));
 }
 
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+function inPlane(radial, y, az) {
+  return new THREE.Vector3(radial * Math.cos(az), y, radial * Math.sin(az));
+}
+
+function planeBinormal(az) {
+  return new THREE.Vector3(-Math.sin(az), 0, Math.cos(az));
+}
+
+export function spoutAzimuth(spec) {
+  if (spec.spoutAz != null) return spec.spoutAz;
+  return spec.handle !== 'none' ? Math.PI : 0;
+}
+
+export function handleAzimuth(spec) {
+  if (spec.handleAz != null) return spec.handleAz;
+  return spoutAzimuth(spec) + Math.PI;
+}
+
+export function spoutParams(spec) {
+  const H = spec.nodes[spec.nodes.length - 1].y;
+  const yFoot = spec.nodes[0].y;
+  const wallH = Math.max(0.08, H - yFoot);
+  const yFrac = clamp(spec.spoutY ?? 0.5, SPOUT_LIMITS.yFrac[0], SPOUT_LIMITS.yFrac[1]);
+  const y0 = yFoot + wallH * yFrac;
+  const r0 = radiusAt(spec, y0);
+  const maxR = Math.max(...spec.nodes.map(n => n.r), ...spec.bulges.map(b => b.r), 0.4);
+  const sz = spec.spoutSize || 1;
+  const az = spoutAzimuth(spec);
+  const baseOut = Math.max(0.55, 0.48 * maxR + 0.18 * H) * (0.8 + 0.45 * sz);
+  const baseLift = Math.max(0.2, 0.32 * H) * sz;
+  const defTilt = Math.atan2(baseLift, baseOut);
+  const defL = Math.hypot(baseOut, baseLift);
+  const len = clamp(spec.spoutLen != null ? spec.spoutLen : defL, SPOUT_LIMITS.len[0], SPOUT_LIMITS.len[1]);
+  const tilt = clamp(spec.spoutTilt != null ? spec.spoutTilt : defTilt, SPOUT_LIMITS.tilt[0], SPOUT_LIMITS.tilt[1]);
+  const mouth = clamp(spec.spoutMouth != null ? spec.spoutMouth : 1, SPOUT_LIMITS.mouth[0], SPOUT_LIMITS.mouth[1]);
+  const out = len * Math.cos(tilt);
+  const lift = len * Math.sin(tilt);
+  const radRoot = Math.max(0.082, 0.11 * maxR) * (0.9 + 0.35 * sz);
+  const radTip = Math.max(0.028, 0.034 * maxR) * (0.85 + 0.3 * sz) * mouth;
+  const embed = Math.min(r0 * 0.32, radRoot * 1.35);
+  return { H, yFoot, wallH, yFrac, y0, r0, az, len, tilt, out, lift, mouth, radRoot, radTip, embed, maxR };
+}
+
+export function setSpoutHeight(spec, y) {
+  const H = spec.nodes[spec.nodes.length - 1].y;
+  const yFoot = spec.nodes[0].y;
+  const wallH = Math.max(0.08, H - yFoot);
+  spec.spoutY = clamp((y - yFoot) / wallH, SPOUT_LIMITS.yFrac[0], SPOUT_LIMITS.yFrac[1]);
+}
+
+export function setSpoutTip(spec, radial, y) {
+  const p = spoutParams(spec);
+  const dr = radial - p.r0;
+  const dy = y - p.y0;
+  const len = clamp(Math.hypot(Math.max(0.12, dr), dy), SPOUT_LIMITS.len[0], SPOUT_LIMITS.len[1]);
+  spec.spoutLen = len;
+  spec.spoutTilt = clamp(Math.atan2(dy, Math.max(0.12, dr)), SPOUT_LIMITS.tilt[0], SPOUT_LIMITS.tilt[1]);
+}
+
+export function spoutWorld(spec) {
+  const p = spoutParams(spec);
+  const root = inPlane(p.r0, p.y0, p.az);
+  const tip = inPlane(p.r0 + p.out, p.y0 + p.lift, p.az);
+  const buried = inPlane(p.r0 - p.embed, p.y0, p.az);
+  return { ...p, root, tip, buried };
+}
+
 function handleCurve(spec) {
   const H = spec.nodes[spec.nodes.length - 1].y;
   const pos = Math.max(0.04, spec.handlePos);
@@ -225,16 +307,20 @@ function handleCurve(spec) {
   const botY = Math.max(spec.nodes[0].y + 0.06, topY - hh);
   const rTop = radiusAt(spec, topY), rBot = radiusAt(spec, botY);
   const thick = Math.max(0.03, spec.handleThick);
+  const az = handleAzimuth(spec);
+  const P = (r, y) => inPlane(r, y, az);
+  const binormal = planeBinormal(az);
   if (spec.handle === 'c') {
     return {
       curve: new THREE.CubicBezierCurve3(
-        new THREE.Vector3(rTop * 0.96, topY, 0),
-        new THREE.Vector3(rTop + hw, topY + hh * 0.06, 0),
-        new THREE.Vector3(rBot + hw * 0.95, botY - hh * 0.03, 0),
-        new THREE.Vector3(rBot * 0.96, botY, 0)
+        P(rTop * 0.96, topY),
+        P(rTop + hw, topY + hh * 0.06),
+        P(rBot + hw * 0.95, botY - hh * 0.03),
+        P(rBot * 0.96, botY)
       ),
       radius: thick,
       flat: 0.7,
+      binormal,
     };
   }
   const midY = (topY + botY) / 2;
@@ -242,39 +328,35 @@ function handleCurve(spec) {
   const span = Math.max(0.1, (topY - botY) * 0.42);
   return {
     curve: new THREE.CubicBezierCurve3(
-      new THREE.Vector3(rMid * 0.96, midY + span, 0),
-      new THREE.Vector3(rMid + hw * 0.9, midY + span * 0.55, 0),
-      new THREE.Vector3(rMid + hw * 1.05, midY - span * 0.35, 0),
-      new THREE.Vector3(rMid * 0.98, midY - span * 0.12, 0)
+      P(rMid * 0.96, midY + span),
+      P(rMid + hw * 0.9, midY + span * 0.55),
+      P(rMid + hw * 1.05, midY - span * 0.35),
+      P(rMid * 0.98, midY - span * 0.12)
     ),
     radius: thick * 0.92,
     flat: 0.85,
+    binormal,
   };
 }
 
 function spoutCurve(spec) {
-  const H = spec.nodes[spec.nodes.length - 1].y;
-  const maxR = Math.max(...spec.nodes.map(n => n.r), ...spec.bulges.map(b => b.r), 0.4);
-  const y0 = spec.nodes[0].y + (H - spec.nodes[0].y) * 0.5;
-  const r0 = radiusAt(spec, y0);
-  const sz = spec.spoutSize || 1;
-  const len = Math.max(0.55, 0.48 * maxR + 0.18 * H) * (0.8 + 0.45 * sz);
-  const lift = Math.max(0.2, 0.32 * H) * sz;
-  const s = spec.handle !== 'none' ? -1 : 1;
-  const radRoot = Math.max(0.082, 0.11 * maxR) * (0.9 + 0.35 * sz);
-  const radTip = Math.max(0.028, 0.034 * maxR) * (0.85 + 0.3 * sz);
-  const embed = Math.min(r0 * 0.28, radRoot * 1.25);
+  const p = spoutParams(spec);
+  const P = (r, y) => inPlane(r, y, p.az);
   return {
     curve: new THREE.CubicBezierCurve3(
-      new THREE.Vector3(s * (r0 - embed), y0, 0),
-      new THREE.Vector3(s * (r0 + len * 0.22), y0 + lift * 0.05, 0),
-      new THREE.Vector3(s * (r0 + len * 0.78), y0 + lift * 0.55, 0),
-      new THREE.Vector3(s * (r0 + len), y0 + lift, 0)
+      P(p.r0 - p.embed, p.y0),
+      P(p.r0 + p.out * 0.22, p.y0 + p.lift * 0.05),
+      P(p.r0 + p.out * 0.78, p.y0 + p.lift * 0.55),
+      P(p.r0 + p.out, p.y0 + p.lift)
     ),
-    radius: radRoot,
-    radiusEnd: radTip,
+    radius: p.radRoot,
+    radiusEnd: p.radTip,
     radiusTaper: 2.25,
     flat: 1,
+    mouthFlat: 0.52,
+    mouthFlare: 1.28,
+    mouthCut: 0.9,
+    binormal: planeBinormal(p.az),
   };
 }
 
@@ -317,10 +399,10 @@ export function specToDef(spec) {
   const handle = spec.handle === 'c' || spec.handle === 'side' ? handleCurve(spec) : null;
   const spoutTube = spec.spout === 'teapot' ? spoutCurve(spec) : null;
   const lip = spec.spout === 'lip' ? {
-    theta: spec.handle !== 'none' ? Math.PI : 0,
+    theta: spoutAzimuth(spec),
     sigma: 0.34,
     span: Math.min(0.14, height * 0.16),
-    amt: 0.2 * (0.8 + 0.4 * (spec.spoutSize || 1)),
+    amt: 0.2 * (0.8 + 0.4 * (spec.spoutMouth || spec.spoutSize || 1)),
   } : null;
   const maxR = Math.max(...nodes.map(n => n.r), ...spec.bulges.map(b => b.r));
   const elev = height < 0.55 * maxR ? 0.74 : height < 1.15 ? 0.52 : 0.3;
@@ -412,8 +494,14 @@ export function extractCustom(path, meta) {
     handleHeight: mug ? Math.min(0.78, H * 0.55) : Math.min(0.65, H * 0.42),
     handleWidth: mug ? 0.5 : 0.45,
     handleThick: 0.055,
+    handleAz: mug ? 0 : undefined,
     spout: 'none',
     spoutSize: 1,
+    spoutY: 0.5,
+    spoutLen: undefined,
+    spoutTilt: undefined,
+    spoutMouth: 1,
+    spoutAz: mug ? Math.PI : 0,
     source: meta.kind,
   };
 }

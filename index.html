@@ -43,7 +43,7 @@
         <button data-shape="custom" title="Tweak the current outline with draggable nodes">Custom</button>
       </div>
       <div id="customOpts" hidden>
-        <p class="hint" id="customHint">Drag the red nodes. Tap or double-click the outline to add a node; select a node, then Delete to remove it. Grey dots pull the wall bulge.</p>
+        <p class="hint" id="customHint">Drag the red nodes. Tap or double-click the outline to add a node; select a node, then Delete to remove it. Grey dots pull the wall bulge. Blue/yellow grips move the teapot spout.</p>
         <div class="dims" id="capRow"><span>Capacity</span> <b id="capOut">—</b> ml</div>
         <div class="row node-row">
           <span>Profile nodes <b id="nodeCount">0/12</b></span>
@@ -74,12 +74,25 @@
             <input type="range" id="hW" min="0.16" max="0.9" step="0.02"></label>
           <label class="slider">Thickness <output id="hTOut"></output>
             <input type="range" id="hT" min="0.03" max="0.1" step="0.005"></label>
+          <p class="hint" id="handleOppHint">Stays opposite the spout.</p>
         </div>
         <h3>Spout</h3>
         <div class="row seg" id="spoutType">
           <button type="button" data-spout="none">None</button>
           <button type="button" data-spout="lip">Pouring lip</button>
           <button type="button" data-spout="teapot">Teapot</button>
+        </div>
+        <div id="spoutOpts" hidden>
+          <label class="slider" id="sHRow">Height <output id="sHOut"></output>
+            <input type="range" id="sH" min="0.14" max="0.88" step="0.01"></label>
+          <label class="slider">Around pot <output id="sAzOut"></output>
+            <input type="range" id="sAz" min="0" max="360" step="1"></label>
+          <label class="slider" id="sTiltRow">Tilt <output id="sTiltOut"></output>
+            <input type="range" id="sTilt" min="-40" max="65" step="1"></label>
+          <label class="slider" id="sLenRow">Length <output id="sLenOut"></output>
+            <input type="range" id="sLen" min="3" max="24" step="0.1"></label>
+          <label class="slider">Opening <output id="sMouthOut"></output>
+            <input type="range" id="sMouth" min="0.45" max="2.4" step="0.05"></label>
         </div>
         <label class="check"><input type="checkbox" id="sectionView"> Cross-section drawing</label>
       </div>

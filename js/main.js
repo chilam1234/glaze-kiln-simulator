@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt } from './pot.js';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { makePotMaterial } from './material.js';
@@ -165,6 +165,8 @@ const gizmoMats = {
   node: new THREE.MeshBasicMaterial({ color: 0xe74c3c, depthTest: false, transparent: true, opacity: 0.95 }),
   sel: new THREE.MeshBasicMaterial({ color: 0xf5c518, depthTest: false, transparent: true, opacity: 0.98 }),
   bulge: new THREE.MeshBasicMaterial({ color: 0xcfd4da, depthTest: false, transparent: true, opacity: 0.95 }),
+  spoutRoot: new THREE.MeshBasicMaterial({ color: 0x1b82f7, depthTest: false, transparent: true, opacity: 0.97 }),
+  spoutTip: new THREE.MeshBasicMaterial({ color: 0xffbd2e, depthTest: false, transparent: true, opacity: 0.98 }),
   hit: new THREE.MeshBasicMaterial({ visible: false, depthTest: false }),
 };
 const profileLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x333333, depthTest: false, transparent: true, opacity: 0.7 }));
@@ -194,19 +196,28 @@ function rebuildGizmos() {
   const visR = Math.min(mobile ? 0.085 : 0.055, Math.max(mobile ? 0.052 : 0.036, spacing * 0.30));
   const hitR = Math.min(mobile ? 0.16 : 0.09, Math.max(mobile ? 0.11 : 0.07, spacing * 0.48));
   const bulgeR = visR * 0.72;
-  const addBall = (kind, index, r, y) => {
+  const addBall = (kind, index, r, y, world) => {
     const selected = kind === 'node' && index === selectedNode;
-    const vis = new THREE.Mesh(new THREE.SphereGeometry(kind === 'node' ? visR : bulgeR, 16, 12), selected ? gizmoMats.sel : kind === 'node' ? gizmoMats.node : gizmoMats.bulge);
+    const mat = selected ? gizmoMats.sel : gizmoMats[kind] || gizmoMats.node;
+    const size = kind === 'spoutTip' ? visR * 1.12 : kind === 'spoutRoot' ? visR * 1.05 : kind === 'node' ? visR : bulgeR;
+    const vis = new THREE.Mesh(new THREE.SphereGeometry(size, 16, 12), mat);
     vis.userData = { kind, index, r, y, vis: true };
+    if (world) { vis.userData.world = true; vis.userData.x = world.x; vis.userData.y = world.y; vis.userData.z = world.z; }
     vis.renderOrder = 21;
     if (selected) vis.scale.setScalar(1.28);
-    const hit = new THREE.Mesh(new THREE.SphereGeometry(hitR, 10, 8), gizmoMats.hit);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(kind.startsWith('spout') ? hitR * 1.15 : hitR, 10, 8), gizmoMats.hit);
     hit.userData = { kind, index, r, y };
+    if (world) { hit.userData.world = true; hit.userData.x = world.x; hit.userData.y = world.y; hit.userData.z = world.z; }
     hit.renderOrder = 21;
     gizmoGroup.add(vis); gizmoGroup.add(hit);
   };
   customSpec.nodes.forEach((nd, i) => addBall('node', i, nd.r, nd.y));
   customSpec.bulges.forEach((b, i) => addBall('bulge', i, b.r, b.y));
+  if (customSpec.spout === 'teapot') {
+    const sw = spoutWorld(customSpec);
+    addBall('spoutRoot', 0, sw.r0, sw.y0, sw.root);
+    addBall('spoutTip', 0, sw.r0 + sw.out, sw.y0 + sw.lift, sw.tip);
+  }
   const segs = sampleProfilePts();
   profileLine.geometry.dispose();
   profileLine.geometry = new THREE.BufferGeometry().setFromPoints(segs.map(p => new THREE.Vector3(p.r, p.y, 0)));
@@ -228,12 +239,19 @@ function sampleProfilePts() {
 }
 function updateGizmoDataFromSpec() {
   if (!customSpec || !gizmoGroup.visible) return;
+  const sw = customSpec.spout === 'teapot' ? spoutWorld(customSpec) : null;
   gizmoGroup.children.forEach(obj => {
     const d = obj.userData;
     if (!d || d.kind == null) return;
-    const list = d.kind === 'bulge' ? customSpec.bulges : customSpec.nodes;
-    const p = list[d.index];
-    if (p) { d.r = p.r; d.y = p.y; }
+    if (d.kind === 'spoutRoot' && sw) {
+      d.r = sw.r0; d.y = sw.y0; d.x = sw.root.x; d.z = sw.root.z; d.world = true;
+    } else if (d.kind === 'spoutTip' && sw) {
+      d.r = sw.r0 + sw.out; d.y = sw.y0 + sw.lift; d.x = sw.tip.x; d.z = sw.tip.z; d.world = true;
+    } else if (d.kind === 'bulge' || d.kind === 'node') {
+      const list = d.kind === 'bulge' ? customSpec.bulges : customSpec.nodes;
+      const p = list[d.index];
+      if (p) { d.r = p.r; d.y = p.y; }
+    }
   });
   const segs = sampleProfilePts();
   const pos = profileLine.geometry.attributes.position;
@@ -250,7 +268,9 @@ function placeGizmos() {
   const az = gizmoAz(), s = Math.sin(az), c = Math.cos(az);
   gizmoGroup.children.forEach(obj => {
     const d = obj.userData;
-    if (d && d.r != null) obj.position.set(d.r * s, d.y, d.r * c);
+    if (!d) return;
+    if (d.world) obj.position.set(d.x, d.y, d.z);
+    else if (d.r != null) obj.position.set(d.r * s, d.y, d.r * c);
   });
   const pts = profileLine.userData.pts;
   if (pts) {
@@ -263,6 +283,15 @@ function placeGizmos() {
 }
 function gizmoScreenOf(kind, index) {
   if (!customSpec) return null;
+  if (kind === 'spoutRoot' || kind === 'spoutTip') {
+    if (customSpec.spout !== 'teapot') return null;
+    const sw = spoutWorld(customSpec);
+    const p = kind === 'spoutRoot' ? sw.root : sw.tip;
+    camera.updateMatrixWorld();
+    const v = p.clone().project(camera);
+    const rect = renderer.domElement.getBoundingClientRect();
+    return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height };
+  }
   const list = kind === 'bulge' ? customSpec.bulges : customSpec.nodes;
   if (index < 0) index = list.length + index;
   const p = list[index]; if (!p) return null;
@@ -282,7 +311,8 @@ function nearestGizmoScreen(clientX, clientY) {
     const sp = obj.position.clone().project(camera);
     const sx = rect.left + (sp.x + 1) / 2 * rect.width, sy = rect.top + (1 - sp.y) / 2 * rect.height;
     const dist = Math.hypot(sx - clientX, sy - clientY);
-    if (dist < bd) { bd = dist; best = { kind: d.kind, index: d.index, dist }; }
+    const prefer = d.kind === 'spoutRoot' || d.kind === 'spoutTip' ? dist - 7 : dist;
+    if (prefer < bd) { bd = prefer; best = { kind: d.kind, index: d.index, dist }; }
   }
   return best;
 }
@@ -311,8 +341,8 @@ function hitOutline(clientX, clientY) {
   }
   return best;
 }
-function profilePlaneHit(clientX, clientY) {
-  const az = gizmoAz();
+function profilePlaneHit(clientX, clientY, az) {
+  if (az == null) az = gizmoAz();
   const dir = new THREE.Vector3(Math.sin(az), 0, Math.cos(az));
   const n = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
   const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, new THREE.Vector3());
@@ -323,6 +353,25 @@ function profilePlaneHit(clientX, clientY) {
   if (!raycaster.ray.intersectPlane(plane, pt)) return null;
   const r = pt.x * Math.sin(az) + pt.z * Math.cos(az);
   return { r: Math.max(0.08, r), y: pt.y };
+}
+function facingHit(clientX, clientY, through) {
+  const n = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, through);
+  const rect = renderer.domElement.getBoundingClientRect();
+  ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  camera.updateMatrixWorld(); raycaster.setFromCamera(ndc, camera);
+  const pt = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(plane, pt)) return null;
+  return pt;
+}
+function spoutDragHit(clientX, clientY, kind) {
+  if (!customSpec) return null;
+  const sw = spoutWorld(customSpec);
+  const through = kind === 'spoutTip' ? sw.tip : sw.root;
+  const pt = facingHit(clientX, clientY, through);
+  if (!pt) return null;
+  const radial = pt.x * Math.cos(sw.az) + pt.z * Math.sin(sw.az);
+  return { r: radial, y: pt.y };
 }
 const cursor = new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 48), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.55, depthTest: false }));
 cursor.renderOrder = 10; cursor.visible = false; scene.add(cursor);
@@ -444,10 +493,20 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   }
   if (shaping && shapePointer === e.pointerId) {
     if (e.pointerType === 'touch' && touchPointers.size >= 2) { shaping = false; pendingOutline = null; return; }
-    const hit = profilePlaneHit(e.clientX, e.clientY);
-    if (hit && shapeTarget && customSpec) {
-      if (shapeTarget.kind === 'node') constrainNode(customSpec, shapeTarget.index, hit.r, hit.y);
-      else constrainBulge(customSpec, shapeTarget.index, hit.r, hit.y);
+    if (shapeTarget && customSpec) {
+      if (shapeTarget.kind === 'spoutRoot' || shapeTarget.kind === 'spoutTip') {
+        const sh = spoutDragHit(e.clientX, e.clientY, shapeTarget.kind);
+        if (sh) {
+          if (shapeTarget.kind === 'spoutRoot') setSpoutHeight(customSpec, sh.y);
+          else setSpoutTip(customSpec, sh.r, sh.y);
+        }
+      } else {
+        const hit = profilePlaneHit(e.clientX, e.clientY);
+        if (hit) {
+          if (shapeTarget.kind === 'node') constrainNode(customSpec, shapeTarget.index, hit.r, hit.y);
+          else constrainBulge(customSpec, shapeTarget.index, hit.r, hit.y);
+        }
+      }
       liveCustomStatus();
       syncCustomSliders();
       updateGizmoDataFromSpec();
@@ -600,6 +659,20 @@ function syncCustomSliders() {
   $('hH').value = customSpec.handleHeight; $('hHOut').textContent = fmtCm(customSpec.handleHeight * UNIT_CM);
   $('hW').value = customSpec.handleWidth; $('hWOut').textContent = fmtCm(customSpec.handleWidth * UNIT_CM);
   $('hT').value = customSpec.handleThick; $('hTOut').textContent = fmtCm(customSpec.handleThick * UNIT_CM);
+  const sp = customSpec.spout !== 'none' ? spoutParams(customSpec) : null;
+  if (sp) {
+    $('sH').value = sp.yFrac;
+    $('sHOut').textContent = fmtCm((sp.y0 - sp.yFoot) * UNIT_CM);
+    let azDeg = (sp.az * 180 / Math.PI) % 360; if (azDeg < 0) azDeg += 360;
+    $('sAz').value = Math.round(azDeg);
+    $('sAzOut').textContent = Math.round(azDeg) + '°';
+    $('sTilt').value = Math.round(sp.tilt * 180 / Math.PI);
+    $('sTiltOut').textContent = Math.round(sp.tilt * 180 / Math.PI) + '°';
+    $('sLen').value = sp.len * UNIT_CM;
+    $('sLenOut').textContent = fmtCm(sp.len * UNIT_CM);
+    $('sMouth').value = sp.mouth;
+    $('sMouthOut').textContent = (sp.mouth).toFixed(2) + '×';
+  }
   const hud = $('dimHud');
   hud.hidden = false;
   hud.textContent = `${fmtCm(d.height)} · rim Ø ${fmtCm(d.rim)} · ${Math.round(d.ml)} ml`;
@@ -624,14 +697,26 @@ $('nodeSub').onclick = () => {
   if (removed >= 0) selectedNode = Math.min(removed, customSpec.nodes.length - 2);
   onCustomChange();
 };
-$('nodeDel').onclick = () => {
-  if (!customSpec || shapeLocked()) return;
+$('nodeDel').onclick = () => { deleteSelectedNode(); };
+$('nodeDelHud').onclick = () => $('nodeDel').onclick();
+function deleteSelectedNode() {
+  if (!customSpec || shapeLocked()) return false;
   const removed = removeNode(customSpec, selectedNode);
-  if (removed < 0) return;
+  if (removed < 0) return false;
   selectedNode = customSpec.nodes.length > 2 ? Math.min(removed, customSpec.nodes.length - 2) : -1;
   onCustomChange();
-};
-$('nodeDelHud').onclick = () => $('nodeDel').onclick();
+  return true;
+}
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (!showingGizmos()) return;
+  if (selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1) {
+    e.preventDefault();
+    deleteSelectedNode();
+  }
+});
 $('customH').oninput = (e) => { if (!customSpec) return; setHeight(customSpec, +e.target.value / UNIT_CM); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
 $('customH').onchange = () => onCustomChange();
 $('customRim').oninput = (e) => { if (!customSpec) return; setRimR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
@@ -648,6 +733,24 @@ $('customWall').onchange = () => onCustomChange();
     customSpec.handleWidth = +$('hW').value;
     customSpec.handleThick = +$('hT').value;
     rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+  };
+  $(id).onchange = () => onCustomChange();
+});
+function readSpoutSliders() {
+  if (!customSpec) return;
+  customSpec.spoutY = +$('sH').value;
+  customSpec.spoutAz = +$('sAz').value * Math.PI / 180;
+  customSpec.spoutTilt = +$('sTilt').value * Math.PI / 180;
+  customSpec.spoutLen = +$('sLen').value / UNIT_CM;
+  customSpec.spoutMouth = +$('sMouth').value;
+}
+['sH', 'sAz', 'sTilt', 'sLen', 'sMouth'].forEach(id => {
+  $(id).oninput = () => {
+    if (!customSpec) return;
+    readSpoutSliders();
+    rebuildCustom({ preview: true, skipUi: true });
+    if (customSpec.spout === 'teapot') { updateGizmoDataFromSpec(); placeGizmos(); }
+    syncCustomSliders(); liveCustomStatus();
   };
   $(id).onchange = () => onCustomChange();
 });
@@ -752,7 +855,7 @@ function refreshUI() {
   $('customOpts').hidden = !customOn;
   $('dimHud').hidden = !customOn;
   const lock = shapeLocked();
-  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
+  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT', 'sH', 'sAz', 'sTilt', 'sLen', 'sMouth'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
   const canDel = customOn && !lock && selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1;
   if ($('nodeDel')) $('nodeDel').disabled = !canDel;
   if ($('nodeDelHud')) $('nodeDelHud').disabled = !canDel;
@@ -767,12 +870,21 @@ function refreshUI() {
     b.disabled = lock || !customOn;
   });
   $('handleOpts').hidden = !customOn || customSpec.handle === 'none';
+  const hasSpout = customOn && customSpec.spout !== 'none';
+  const teapot = customOn && customSpec.spout === 'teapot';
+  if ($('spoutOpts')) $('spoutOpts').hidden = !hasSpout;
+  ['sHRow', 'sTiltRow', 'sLenRow'].forEach(id => { const el = $(id); if (el) el.hidden = !teapot; });
   $('sectionView').checked = ui.section;
   $('sectionOverlay').hidden = !ui.section;
   if (customOn) syncCustomSliders();
   else $('dimHud').hidden = true;
   if (ui.section) drawSection();
-  if (gizmoGroup) { const want = showingGizmos(); if (gizmoGroup.visible !== want) rebuildGizmos(); else placeGizmos(); }
+  if (gizmoGroup) {
+    const want = showingGizmos();
+    const haveSpout = gizmoGroup.children.some(c => c.userData && c.userData.kind === 'spoutRoot');
+    if (gizmoGroup.visible !== want || !!haveSpout !== teapot) rebuildGizmos();
+    else placeGizmos();
+  }
   if (pot) showPourRing(ui.pourH);
 }
 
@@ -886,7 +998,7 @@ window.__sim = {
     if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return false; }
     if (partial.nodes) customSpec.nodes = partial.nodes.map(p => ({ r: p.r, y: p.y }));
     if (partial.bulges) customSpec.bulges = partial.bulges.map(p => ({ r: p.r, y: p.y }));
-    for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'spout', 'spoutSize', 'source']) {
+    for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'handleAz', 'spout', 'spoutSize', 'spoutY', 'spoutLen', 'spoutTilt', 'spoutMouth', 'spoutAz', 'source']) {
       if (partial[k] !== undefined) customSpec[k] = partial[k];
     }
     rebuildCustom();
@@ -949,6 +1061,16 @@ window.__sim = {
   spoutRadii() {
     const R = pot.rows; if (R.spoutFrom >= TEX_H) return null;
     return { root: R.r[R.spoutFrom], tip: R.r[Math.max(R.spoutFrom, R.spoutTo - 1)], n: Math.max(0, R.spoutTo - R.spoutFrom) };
+  },
+  spoutPose() {
+    if (!customSpec || customSpec.spout !== 'teapot') return null;
+    const p = spoutParams(customSpec);
+    const w = spoutWorld(customSpec);
+    return {
+      yFrac: p.yFrac, y0: p.y0, r0: p.r0, az: p.az, len: p.len, tilt: p.tilt, mouth: p.mouth, out: p.out, lift: p.lift,
+      root: { x: w.root.x, y: w.root.y, z: w.root.z },
+      tip: { x: w.tip.x, y: w.tip.y, z: w.tip.z },
+    };
   },
   setSection(on) { ui.section = !!on; refreshUI(); drawSection(); },
   get section() { return ui.section; },
