@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID } from './pot.js';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { makePotMaterial } from './material.js';
@@ -73,6 +73,7 @@ let pot = null, mesh = null, pickMesh = null;
 // ---------- UI state ----------
 const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false, touchMode: 'paint', cone: 6, section: false };
 let customSpec = null;
+let selectedNode = -1;
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
@@ -96,6 +97,11 @@ function applyBuiltPot(built, opts = {}) {
   state.setPot(pot, opts);
   if (!opts.preview) ui.simState = 'raw';
   if (!opts.preview && !opts.noFrame) frameCamera();
+  if (opts.skipUi) {
+    updateGizmoDataFromSpec();
+    placeGizmos();
+    return;
+  }
   refreshUI();
   rebuildGizmos();
 }
@@ -106,6 +112,7 @@ function setShape(kind) {
     const src = ui.shape === 'custom' ? (customSpec?.source || 'vase') : ui.shape;
     customSpec = extractCustom(src);
     customSpec.source = src;
+    selectedNode = customSpec.nodes.length - 1;
     ui.shape = 'custom';
     applyBuiltPot(buildCustomPot(customSpec), { remap: true });
     if (isMobileLayout()) {
@@ -118,6 +125,7 @@ function setShape(kind) {
     return;
   }
   customSpec = null;
+  selectedNode = -1;
   ui.shape = kind;
   applyBuiltPot(buildPot(kind));
   setStatus(`${kind[0].toUpperCase() + kind.slice(1)} ready. Paint some glaze, then fire.`);
@@ -138,6 +146,7 @@ function rebuildCustom(opts = {}) {
     skipCompose: !!opts.preview,
     remap: !opts.preview,
     noFrame: true,
+    skipUi: !!opts.skipUi,
   });
 }
 
@@ -154,6 +163,7 @@ function hitAt(clientX, clientY) {
 const gizmoGroup = new THREE.Group(); gizmoGroup.renderOrder = 20; scene.add(gizmoGroup);
 const gizmoMats = {
   node: new THREE.MeshBasicMaterial({ color: 0xe74c3c, depthTest: false, transparent: true, opacity: 0.95 }),
+  sel: new THREE.MeshBasicMaterial({ color: 0xf5c518, depthTest: false, transparent: true, opacity: 0.98 }),
   bulge: new THREE.MeshBasicMaterial({ color: 0xcfd4da, depthTest: false, transparent: true, opacity: 0.95 }),
   hit: new THREE.MeshBasicMaterial({ visible: false, depthTest: false }),
 };
@@ -177,33 +187,63 @@ function rebuildGizmos() {
   clearGizmoMeshes();
   if (!showingGizmos() || !customSpec) { gizmoGroup.visible = false; return; }
   gizmoGroup.visible = true;
-  const visR = isMobileLayout() ? 0.085 : 0.055;
-  const hitR = isMobileLayout() ? 0.16 : 0.09;
+  const n = customSpec.nodes.length;
+  const H = Math.max(0.2, customSpec.nodes[n - 1].y - customSpec.nodes[0].y);
+  const spacing = H / Math.max(1, n - 1);
+  const mobile = isMobileLayout();
+  const visR = Math.min(mobile ? 0.085 : 0.055, Math.max(mobile ? 0.052 : 0.036, spacing * 0.30));
+  const hitR = Math.min(mobile ? 0.16 : 0.09, Math.max(mobile ? 0.11 : 0.07, spacing * 0.48));
   const bulgeR = visR * 0.72;
-  const addBall = (kind, index, r, y, rad) => {
-    const vis = new THREE.Mesh(new THREE.SphereGeometry(kind === 'node' ? visR : bulgeR, 16, 12), kind === 'node' ? gizmoMats.node : gizmoMats.bulge);
+  const addBall = (kind, index, r, y) => {
+    const selected = kind === 'node' && index === selectedNode;
+    const vis = new THREE.Mesh(new THREE.SphereGeometry(kind === 'node' ? visR : bulgeR, 16, 12), selected ? gizmoMats.sel : kind === 'node' ? gizmoMats.node : gizmoMats.bulge);
     vis.userData = { kind, index, r, y, vis: true };
     vis.renderOrder = 21;
+    if (selected) vis.scale.setScalar(1.28);
     const hit = new THREE.Mesh(new THREE.SphereGeometry(hitR, 10, 8), gizmoMats.hit);
     hit.userData = { kind, index, r, y };
     hit.renderOrder = 21;
     gizmoGroup.add(vis); gizmoGroup.add(hit);
   };
-  customSpec.nodes.forEach((n, i) => addBall('node', i, n.r, n.y));
+  customSpec.nodes.forEach((nd, i) => addBall('node', i, nd.r, nd.y));
   customSpec.bulges.forEach((b, i) => addBall('bulge', i, b.r, b.y));
+  const segs = sampleProfilePts();
+  profileLine.geometry.dispose();
+  profileLine.geometry = new THREE.BufferGeometry().setFromPoints(segs.map(p => new THREE.Vector3(p.r, p.y, 0)));
+  profileLine.userData.pts = segs;
+  placeGizmos();
+}
+function sampleProfilePts() {
   const segs = [];
-  const Nsamp = 24;
+  if (!customSpec) return segs;
+  const Nsamp = 20;
   for (let i = 0; i < customSpec.nodes.length - 1; i++) {
     const p0 = customSpec.nodes[i], c = customSpec.bulges[i], p1 = customSpec.nodes[i + 1];
     for (let k = 0; k <= Nsamp; k++) {
       const t = k / Nsamp, u = 1 - t;
-      segs.push(new THREE.Vector3(u * u * p0.r + 2 * u * t * c.r + t * t * p1.r, u * u * p0.y + 2 * u * t * c.y + t * t * p1.y, 0));
+      segs.push({ r: u * u * p0.r + 2 * u * t * c.r + t * t * p1.r, y: u * u * p0.y + 2 * u * t * c.y + t * t * p1.y });
     }
   }
-  profileLine.geometry.dispose();
-  profileLine.geometry = new THREE.BufferGeometry().setFromPoints(segs);
-  profileLine.userData.pts = segs.map(p => ({ r: p.x, y: p.y }));
-  placeGizmos();
+  return segs;
+}
+function updateGizmoDataFromSpec() {
+  if (!customSpec || !gizmoGroup.visible) return;
+  gizmoGroup.children.forEach(obj => {
+    const d = obj.userData;
+    if (!d || d.kind == null) return;
+    const list = d.kind === 'bulge' ? customSpec.bulges : customSpec.nodes;
+    const p = list[d.index];
+    if (p) { d.r = p.r; d.y = p.y; }
+  });
+  const segs = sampleProfilePts();
+  const pos = profileLine.geometry.attributes.position;
+  if (pos && pos.count === segs.length) {
+    profileLine.userData.pts = segs;
+  } else {
+    profileLine.geometry.dispose();
+    profileLine.geometry = new THREE.BufferGeometry().setFromPoints(segs.map(p => new THREE.Vector3(p.r, p.y, 0)));
+    profileLine.userData.pts = segs;
+  }
 }
 function placeGizmos() {
   if (!gizmoGroup.visible) return;
@@ -232,22 +272,42 @@ function gizmoScreenOf(kind, index) {
   const rect = renderer.domElement.getBoundingClientRect();
   return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height };
 }
-function hitGizmo(clientX, clientY) {
+function nearestGizmoScreen(clientX, clientY) {
   if (!showingGizmos()) return null;
   const rect = renderer.domElement.getBoundingClientRect();
-  ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-  camera.updateMatrixWorld(); raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObjects(gizmoGroup.children, false).filter(h => h.object.userData && h.object.userData.kind);
-  if (hits[0]) return hits[0].object.userData;
-  // fat-finger: nearest gizmo in screen space
-  const lim = isMobileLayout() ? 40 : 18;
-  let best = null, bd = lim;
+  camera.updateMatrixWorld();
+  let best = null, bd = 1e9;
   for (const obj of gizmoGroup.children) {
     const d = obj.userData; if (!d || !d.kind || d.vis) continue;
     const sp = obj.position.clone().project(camera);
     const sx = rect.left + (sp.x + 1) / 2 * rect.width, sy = rect.top + (1 - sp.y) / 2 * rect.height;
     const dist = Math.hypot(sx - clientX, sy - clientY);
-    if (dist < bd) { bd = dist; best = d; }
+    if (dist < bd) { bd = dist; best = { kind: d.kind, index: d.index, dist }; }
+  }
+  return best;
+}
+function hitGizmo(clientX, clientY) {
+  const g = nearestGizmoScreen(clientX, clientY);
+  const lim = isMobileLayout() ? 40 : 18;
+  if (g && g.dist <= lim) return g;
+  return null;
+}
+function hitOutline(clientX, clientY) {
+  if (!showingGizmos() || !customSpec) return null;
+  const pts = profileLine.userData.pts;
+  if (!pts || !pts.length) return null;
+  const az = gizmoAz();
+  const rect = renderer.domElement.getBoundingClientRect();
+  camera.updateMatrixWorld();
+  const s = Math.sin(az), c = Math.cos(az);
+  const lim = isMobileLayout() ? 34 : 16;
+  let best = null, bd = lim;
+  const v = new THREE.Vector3();
+  for (const p of pts) {
+    v.set(p.r * s, p.y, p.r * c).project(camera);
+    const sx = rect.left + (v.x + 1) / 2 * rect.width, sy = rect.top + (1 - v.y) / 2 * rect.height;
+    const dist = Math.hypot(sx - clientX, sy - clientY);
+    if (dist < bd) { bd = dist; best = { r: p.r, y: p.y, dist }; }
   }
   return best;
 }
@@ -275,8 +335,44 @@ function showPourRing(hFrac) {
 
 let painting = false, lastScreen = null, paintPointer = null;
 let shaping = false, shapePointer = null, shapeTarget = null;
+let pendingOutline = null, lastAddMs = 0, previewRaf = 0;
 const touchPointers = new Set();
 function dabFromHit(h) { state.dab(h.uv.x, h.uv.y, ui.size, GLAZE_INDEX[ui.glaze], thickness[ui.glaze]); }
+function liveCustomStatus() {
+  if (!customSpec || shapeLocked()) return;
+  const d = dimsCm(customSpec);
+  setStatus(`Custom shape · ${Math.round(d.ml)} ml.`);
+}
+function queueShapePreview() {
+  if (previewRaf) return;
+  previewRaf = requestAnimationFrame(() => {
+    previewRaf = 0;
+    if (!customSpec || shapeLocked()) return;
+    rebuildCustom({ preview: true, skipUi: true });
+  });
+}
+function flushShapePreview() {
+  if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = 0; }
+}
+function tryAddAtHeight(y) {
+  if (!customSpec || shapeLocked()) return false;
+  if (performance.now() - lastAddMs < 350) return false;
+  return insertNodeAt(y);
+}
+function insertNodeAt(y) {
+  if (!customSpec || shapeLocked()) return false;
+  const idx = addNodeAt(customSpec, y);
+  if (idx < 0) return false;
+  selectedNode = idx;
+  lastAddMs = performance.now();
+  onCustomChange();
+  return true;
+}
+function selectNode(i) {
+  selectedNode = i;
+  rebuildGizmos();
+  refreshUI();
+}
 function syncOrbitTouches() {
   // Paint: one-finger ignored by OrbitControls (we paint). Two-finger dolly+rotate.
   // Shape: one-finger ignored (we drag nodes). Two-finger dolly+rotate.
@@ -300,17 +396,28 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') touchPointers.add(e.pointerId);
   if (e.pointerType === 'touch' && touchPointers.size >= 2) {
     painting = false; lastScreen = null; paintPointer = null;
-    if (shaping) { shaping = false; shapePointer = null; rebuildCustom(); }
+    pendingOutline = null;
+    if (shaping) { shaping = false; shapePointer = null; flushShapePreview(); rebuildCustom(); }
     controls.enabled = true;
     return;
   }
   if (e.button !== 0 || ui.simState !== 'raw' || !mesh) return;
   if (showingGizmos() && (e.pointerType !== 'touch' || canShapeTouch())) {
     const g = hitGizmo(e.clientX, e.clientY);
-    if (g) {
+    const outline = hitOutline(e.clientX, e.clientY);
+    const preferOutline = outline && (!g || outline.dist + 8 < g.dist);
+    if (g && !preferOutline) {
       e.preventDefault();
       if (e.pointerType !== 'touch') controls.enabled = false;
       shaping = true; shapePointer = e.pointerId; shapeTarget = { kind: g.kind, index: g.index };
+      if (g.kind === 'node') { selectedNode = g.index; rebuildGizmos(); refreshUI(); }
+      renderer.domElement.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (outline) {
+      e.preventDefault();
+      if (e.pointerType !== 'touch') controls.enabled = false;
+      pendingOutline = { pointer: e.pointerId, x: e.clientX, y: e.clientY, height: outline.y };
       renderer.domElement.setPointerCapture(e.pointerId);
       return;
     }
@@ -332,13 +439,20 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 }, { capture: true });
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (!mesh) return;
+  if (pendingOutline && pendingOutline.pointer === e.pointerId) {
+    if (Math.hypot(e.clientX - pendingOutline.x, e.clientY - pendingOutline.y) > (isMobileLayout() ? 18 : 10)) pendingOutline = null;
+  }
   if (shaping && shapePointer === e.pointerId) {
-    if (e.pointerType === 'touch' && touchPointers.size >= 2) { shaping = false; return; }
+    if (e.pointerType === 'touch' && touchPointers.size >= 2) { shaping = false; pendingOutline = null; return; }
     const hit = profilePlaneHit(e.clientX, e.clientY);
     if (hit && shapeTarget && customSpec) {
       if (shapeTarget.kind === 'node') constrainNode(customSpec, shapeTarget.index, hit.r, hit.y);
       else constrainBulge(customSpec, shapeTarget.index, hit.r, hit.y);
-      rebuildCustom({ preview: true });
+      liveCustomStatus();
+      syncCustomSliders();
+      updateGizmoDataFromSpec();
+      placeGizmos();
+      queueShapePreview();
     }
     return;
   }
@@ -362,9 +476,18 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 });
 const endStroke = (e) => {
   if (e && e.pointerType === 'touch') touchPointers.delete(e.pointerId);
+  if (pendingOutline && (!e || e.pointerId === pendingOutline.pointer || !touchPointers.size)) {
+    const addY = pendingOutline.height;
+    pendingOutline = null;
+    if (e && e.pointerType === 'touch' && touchPointers.size >= 1) { /* second finger: keep orbit */ }
+    else tryAddAtHeight(addY);
+    controls.enabled = true;
+  }
   if (shaping && (!e || e.pointerId === shapePointer || !touchPointers.size)) {
     shaping = false; shapePointer = null; shapeTarget = null;
+    flushShapePreview();
     rebuildCustom();
+    liveCustomStatus();
   }
   if (e && paintPointer !== null && e.pointerId !== paintPointer && touchPointers.size) return;
   painting = false; paintPointer = null; controls.enabled = true;
@@ -372,6 +495,12 @@ const endStroke = (e) => {
 renderer.domElement.addEventListener('pointerup', endStroke);
 renderer.domElement.addEventListener('pointercancel', endStroke);
 renderer.domElement.addEventListener('pointerleave', () => { cursor.visible = false; });
+renderer.domElement.addEventListener('dblclick', (e) => {
+  if (!showingGizmos() || shapeLocked()) return;
+  if (hitGizmo(e.clientX, e.clientY)) return;
+  const outline = hitOutline(e.clientX, e.clientY);
+  if (outline) { e.preventDefault(); tryAddAtHeight(outline.y); }
+});
 
 view.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
 document.addEventListener('gesturestart', (e) => e.preventDefault());
@@ -465,6 +594,8 @@ function syncCustomSliders() {
   $('customFoot').value = d.foot; $('customFootOut').textContent = fmtCm(d.foot);
   $('customWall').value = d.wall; $('customWallOut').textContent = d.wall.toFixed(2) + ' cm';
   $('capOut').textContent = Math.round(d.ml);
+  const mid = Math.max(0, customSpec.nodes.length - 2);
+  const nc = $('nodeCount'); if (nc) nc.textContent = `${mid}/${MAX_MID}`;
   $('hPos').value = customSpec.handlePos; $('hPosOut').textContent = fmtCm(customSpec.handlePos * UNIT_CM);
   $('hH').value = customSpec.handleHeight; $('hHOut').textContent = fmtCm(customSpec.handleHeight * UNIT_CM);
   $('hW').value = customSpec.handleWidth; $('hWOut').textContent = fmtCm(customSpec.handleWidth * UNIT_CM);
@@ -479,15 +610,35 @@ function onCustomChange() {
   const d = dimsCm(customSpec);
   setStatus(`Custom shape · ${Math.round(d.ml)} ml.`);
 }
-$('nodeAdd').onclick = () => { if (!customSpec || shapeLocked()) return; if (customSpec.nodes.length >= 2 + MAX_MID) return; addNode(customSpec); onCustomChange(); };
-$('nodeSub').onclick = () => { if (!customSpec || shapeLocked()) return; removeNode(customSpec); onCustomChange(); };
-$('customH').oninput = (e) => { if (!customSpec) return; setHeight(customSpec, +e.target.value / UNIT_CM); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('nodeAdd').onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  if (customSpec.nodes.length >= 2 + MAX_MID) return;
+  addNode(customSpec);
+  selectedNode = Math.min(customSpec.nodes.length - 2, Math.max(1, selectedNode));
+  onCustomChange();
+};
+$('nodeSub').onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  const idx = selectedNode > 0 && selectedNode < customSpec.nodes.length - 1 ? selectedNode : undefined;
+  const removed = removeNode(customSpec, idx);
+  if (removed >= 0) selectedNode = Math.min(removed, customSpec.nodes.length - 2);
+  onCustomChange();
+};
+$('nodeDel').onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  const removed = removeNode(customSpec, selectedNode);
+  if (removed < 0) return;
+  selectedNode = customSpec.nodes.length > 2 ? Math.min(removed, customSpec.nodes.length - 2) : -1;
+  onCustomChange();
+};
+$('nodeDelHud').onclick = () => $('nodeDel').onclick();
+$('customH').oninput = (e) => { if (!customSpec) return; setHeight(customSpec, +e.target.value / UNIT_CM); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
 $('customH').onchange = () => onCustomChange();
-$('customRim').oninput = (e) => { if (!customSpec) return; setRimR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('customRim').oninput = (e) => { if (!customSpec) return; setRimR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
 $('customRim').onchange = () => onCustomChange();
-$('customFoot').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('customFoot').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
 $('customFoot').onchange = () => onCustomChange();
-$('customWall').oninput = (e) => { if (!customSpec) return; customSpec.wall = Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('customWall').oninput = (e) => { if (!customSpec) return; customSpec.wall = Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
 $('customWall').onchange = () => onCustomChange();
 ['hPos', 'hH', 'hW', 'hT'].forEach(id => {
   $(id).oninput = () => {
@@ -496,7 +647,7 @@ $('customWall').onchange = () => onCustomChange();
     customSpec.handleHeight = +$('hH').value;
     customSpec.handleWidth = +$('hW').value;
     customSpec.handleThick = +$('hT').value;
-    rebuildCustom({ preview: true }); syncCustomSliders();
+    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
   };
   $(id).onchange = () => onCustomChange();
 });
@@ -601,7 +752,12 @@ function refreshUI() {
   $('customOpts').hidden = !customOn;
   $('dimHud').hidden = !customOn;
   const lock = shapeLocked();
-  ['nodeAdd', 'nodeSub', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
+  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
+  const canDel = customOn && !lock && selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1;
+  if ($('nodeDel')) $('nodeDel').disabled = !canDel;
+  if ($('nodeDelHud')) $('nodeDelHud').disabled = !canDel;
+  if ($('shapeTools')) $('shapeTools').hidden = !showingGizmos() || !canDel;
+  if ($('nodeAdd') && customOn && customSpec) $('nodeAdd').disabled = lock || customSpec.nodes.length >= 2 + MAX_MID;
   document.querySelectorAll('#handleType button').forEach(b => {
     b.classList.toggle('active', customOn && customSpec.handle === b.dataset.handle);
     b.disabled = lock || !customOn;
@@ -734,12 +890,66 @@ window.__sim = {
       if (partial[k] !== undefined) customSpec[k] = partial[k];
     }
     rebuildCustom();
+    liveCustomStatus();
     return true;
   },
-  addNode() { if (!customSpec || shapeLocked()) return false; addNode(customSpec); rebuildCustom(); return true; },
-  removeNode() { if (!customSpec || shapeLocked()) return false; removeNode(customSpec); rebuildCustom(); return true; },
+  addNode() {
+    if (!customSpec || shapeLocked()) return false;
+    if (customSpec.nodes.length >= 2 + MAX_MID) return false;
+    addNode(customSpec);
+    selectedNode = Math.min(customSpec.nodes.length - 2, Math.max(1, selectedNode));
+    rebuildCustom();
+    return true;
+  },
+  addNodeAt(y) { return insertNodeAt(y); },
+  removeNode(i) {
+    if (!customSpec || shapeLocked()) return false;
+    const removed = removeNode(customSpec, i);
+    if (removed < 0) return false;
+    selectedNode = customSpec.nodes.length > 2 ? Math.min(removed, customSpec.nodes.length - 2) : -1;
+    rebuildCustom();
+    return true;
+  },
+  selectNode(i) { if (!customSpec) return false; selectNode(i); return true; },
+  get selectedNode() { return selectedNode; },
+  get maxMid() { return MAX_MID; },
+  getLimits() { return { ...LIMITS, maxMid: MAX_MID }; },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
   gizmoScreen(kind, index) { return gizmoScreenOf(kind, index); },
+  profileScreen(y) {
+    if (!customSpec) return null;
+    const r = radiusAt(customSpec, y);
+    const az = gizmoAz();
+    camera.updateMatrixWorld();
+    const v = new THREE.Vector3(r * Math.sin(az), y, r * Math.cos(az)).project(camera);
+    const rect = renderer.domElement.getBoundingClientRect();
+    return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height, r };
+  },
+  outlineHit(x, y) { return hitOutline(x, y); },
+  outlineTapTarget() {
+    if (!customSpec) return null;
+    const pts = profileLine.userData.pts;
+    if (!pts || !pts.length) return null;
+    const az = gizmoAz(), s = Math.sin(az), c = Math.cos(az);
+    const rect = renderer.domElement.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    const v = new THREE.Vector3();
+    let best = null, bestClear = -1;
+    for (const p of pts) {
+      if (p.y <= customSpec.nodes[0].y + 0.06 || p.y >= customSpec.nodes[customSpec.nodes.length - 1].y - 0.06) continue;
+      v.set(p.r * s, p.y, p.r * c).project(camera);
+      const sx = rect.left + (v.x + 1) / 2 * rect.width, sy = rect.top + (1 - v.y) / 2 * rect.height;
+      if (sx < rect.left + 8 || sx > rect.right - 8 || sy < rect.top + 8 || sy > rect.bottom - 8) continue;
+      const g = nearestGizmoScreen(sx, sy);
+      const clear = g ? g.dist : 80;
+      if (clear > bestClear) { bestClear = clear; best = { x: sx, y: sy, r: p.r, height: p.y, clear }; }
+    }
+    return best;
+  },
+  spoutRadii() {
+    const R = pot.rows; if (R.spoutFrom >= TEX_H) return null;
+    return { root: R.r[R.spoutFrom], tip: R.r[Math.max(R.spoutFrom, R.spoutTo - 1)], n: Math.max(0, R.spoutTo - R.spoutFrom) };
+  },
   setSection(on) { ui.section = !!on; refreshUI(); drawSection(); },
   get section() { return ui.section; },
   stats: () => state.stats(),

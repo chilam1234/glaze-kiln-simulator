@@ -66,9 +66,11 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 #shapes button { padding: 6px 2px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #shapes button[data-shape="custom"] { grid-column: 1 / -1; }
 #customOpts h3 { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--amaco-navy); margin: 10px 0 4px; }
-.node-row { align-items: center; }
+.node-row { align-items: center; flex-wrap: wrap; }
 .node-row span { flex: 1; font-size: 12px; color: var(--text-muted); }
+.node-row span b { color: var(--amaco-navy); }
 .node-row button { flex: 0 0 40px; font-size: 18px; line-height: 1; padding: 4px; }
+.node-row button.node-del { flex: 0 0 auto; min-width: 72px; font-size: 12px; padding: 6px 10px; }
 .dims { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 0 2px; font-size: 12px; color: var(--text-muted); }
 .dims b { color: var(--amaco-navy); font-size: 15px; }
 #view { position: relative; }
@@ -76,6 +78,14 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   position: absolute; top: 10px; right: 12px; z-index: 2; pointer-events: none;
   background: rgba(253, 253, 253, .9); border: 1px solid var(--panel-border); border-radius: 6px;
   padding: 6px 10px; font: 600 12px var(--font-body); color: var(--amaco-ink); box-shadow: 0 2px 8px rgba(0,18,36,.08);
+}
+#shapeTools {
+  position: absolute; left: 10px; bottom: 12px; z-index: 2;
+}
+#shapeTools button {
+  min-height: 44px; min-width: 108px; padding: 8px 14px; font: 700 13px var(--font-btn);
+  letter-spacing: .04em; background: var(--amaco-white); color: var(--amaco-navy);
+  border: 2px solid var(--amaco-navy); box-shadow: 0 2px 8px rgba(0,18,36,.12);
 }
 #sectionOverlay {
   position: absolute; inset: 6% 8%; z-index: 5; background: #fff; border-radius: 10px;
@@ -186,6 +196,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #customOpts h3, #handleType, #spoutType, #handleOpts, #customOpts .check { grid-column: 1 / -1; }
   #handleOpts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
   #customOpts .node-row button { min-height: 44px; min-width: 44px; flex-basis: 44px; font-size: 22px; }
+  #customOpts .node-row button.node-del { flex-basis: auto; min-width: 72px; font-size: 14px; padding: 8px 12px; }
   #customOpts h3 { margin: 8px 0 4px; }
   #dimHud { top: 8px; right: 8px; font-size: 11px; padding: 5px 8px; max-width: 70%; }
   #sectionOverlay { inset: 4% 4% 8px 4%; }
