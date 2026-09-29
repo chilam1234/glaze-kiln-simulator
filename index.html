@@ -22,8 +22,9 @@
       <button type="button" role="tab" data-sheet="glaze" aria-controls="sheet">Glaze</button>
       <button type="button" role="tab" data-sheet="tool" aria-controls="sheet">Tool</button>
     </div>
-    <div class="row seg" id="touchMode" title="One finger paints; two fingers orbit. Or lock to orbit.">
+    <div class="row seg" id="touchMode" title="Paint, edit the custom profile, or orbit. Two fingers always orbit and pinch-zoom.">
       <button type="button" data-mode="paint">Paint</button>
+      <button type="button" data-mode="shape">Shape</button>
       <button type="button" data-mode="orbit">Orbit</button>
     </div>
   </div>
@@ -39,6 +40,47 @@
         <button data-shape="bottle">Bottle</button>
         <button data-shape="jar">Jar</button>
         <button data-shape="mug">Mug</button>
+        <button data-shape="custom" title="Tweak the current outline with draggable nodes">Custom</button>
+      </div>
+      <div id="customOpts" hidden>
+        <p class="hint" id="customHint">Drag the red nodes on the pot. Grey dots pull the wall bulge.</p>
+        <div class="dims" id="capRow"><span>Capacity</span> <b id="capOut">—</b> ml</div>
+        <div class="row node-row">
+          <span>Profile nodes</span>
+          <button type="button" id="nodeSub" title="Remove a middle node">−</button>
+          <button type="button" id="nodeAdd" title="Add a middle node">+</button>
+        </div>
+        <label class="slider">Height <output id="customHOut"></output>
+          <input type="range" id="customH" min="4" max="36" step="0.1"></label>
+        <label class="slider">Rim Ø <output id="customRimOut"></output>
+          <input type="range" id="customRim" min="4" max="40" step="0.1"></label>
+        <label class="slider">Foot Ø <output id="customFootOut"></output>
+          <input type="range" id="customFoot" min="3" max="32" step="0.1"></label>
+        <label class="slider">Wall <output id="customWallOut"></output>
+          <input type="range" id="customWall" min="0.3" max="1.4" step="0.05"></label>
+        <h3>Handle</h3>
+        <div class="row seg" id="handleType">
+          <button type="button" data-handle="none">None</button>
+          <button type="button" data-handle="c">C-loop</button>
+          <button type="button" data-handle="side">Side</button>
+        </div>
+        <div id="handleOpts">
+          <label class="slider">From rim <output id="hPosOut"></output>
+            <input type="range" id="hPos" min="0.04" max="0.6" step="0.01"></label>
+          <label class="slider">Loop height <output id="hHOut"></output>
+            <input type="range" id="hH" min="0.2" max="1.2" step="0.02"></label>
+          <label class="slider">Width <output id="hWOut"></output>
+            <input type="range" id="hW" min="0.16" max="0.9" step="0.02"></label>
+          <label class="slider">Thickness <output id="hTOut"></output>
+            <input type="range" id="hT" min="0.03" max="0.1" step="0.005"></label>
+        </div>
+        <h3>Spout</h3>
+        <div class="row seg" id="spoutType">
+          <button type="button" data-spout="none">None</button>
+          <button type="button" data-spout="lip">Pouring lip</button>
+          <button type="button" data-spout="teapot">Teapot</button>
+        </div>
+        <label class="check"><input type="checkbox" id="sectionView"> Cross-section drawing</label>
       </div>
     </section>
     <section data-sheet="glaze">
@@ -90,7 +132,13 @@
   <p id="status">Loading…</p>
   <p class="credit">Glaze colors approximated from AMACO product photos. Not affiliated with AMACO.</p>
 </aside>
-<main id="view"></main>
+<main id="view">
+  <div id="dimHud" hidden></div>
+  <div id="sectionOverlay" hidden>
+    <button type="button" id="sectionClose" aria-label="Close cross-section">×</button>
+    <canvas id="sectionCanvas"></canvas>
+  </div>
+</main>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

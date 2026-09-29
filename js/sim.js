@@ -86,10 +86,28 @@ export class GlazeState {
     this.waxFoot = true;
     this.onUpload = () => {};
   }
-  setPot(pot) {
-    this.pot = pot; const R = pot.rows;
+  setPot(pot, opts = {}) {
+    const prev = this.pot;
+    const prevThick = (opts.remap && prev) ? this.thick.map(a => Float32Array.from(a)) : null;
+    const prevStamp = (opts.remap && prev) ? this.stamp.map(a => Uint16Array.from(a)) : null;
+    this.pot = pot;
+    if (!opts.skipNoise || !this.nLow) this._buildNoise();
+    if (prevThick) {
+      for (const a of this.thick) a.fill(0);
+      for (const a of this.stamp) a.fill(0);
+      this._remapGlaze(prev, prevThick, prevStamp);
+      this.fired = null; this.mode = 'raw';
+      this.composeRaw(0, H - 1);
+    } else if (opts.keepGlaze) {
+      if (!opts.skipCompose) this.composeRaw(0, H - 1);
+    } else {
+      this.clear();
+    }
+  }
+  _buildNoise() {
+    const R = this.pot.rows;
     this.nLow = new Float32Array(N); this.nMid = new Float32Array(N); this.nLow2 = new Float32Array(N); this.streak = new Float32Array(N);
-    this.cellE = new Float32Array(N); this.cellId = new Float32Array(N); const vo = [0, 0];   // floating cells
+    this.cellE = new Float32Array(N); this.cellId = new Float32Array(N); const vo = [0, 0];
     const cs = new Float32Array(W), sn = new Float32Array(W);
     for (let j = 0; j < W; j++) { const th = (j + 0.5) / W * Math.PI * 2; cs[j] = Math.cos(th); sn[j] = Math.sin(th); }
     const Fm = R.frame;
@@ -106,7 +124,39 @@ export class GlazeState {
         const wq = 0.9 * (this.nMid[i] - 0.5); voronoi3(x * 17 + wq, y * 17 - wq, z * 17 + wq, vo); this.cellE[i] = vo[0]; this.cellId[i] = vo[1];
       }
     }
-    this.clear();
+  }
+  _remapGlaze(oldPot, thick, stamp) {
+    const oR = oldPot.rows, nR = this.pot.rows;
+    const map = new Int32Array(nR.potRows);
+    for (let k = 0; k < nR.potRows; k++) {
+      const y = nR.y[k], side = Math.sign(nR.nr[k]) || 1;
+      let best = 0, bd = 1e9;
+      for (let i = 0; i < oR.potRows; i++) {
+        const s2 = Math.sign(oR.nr[i]) || 1;
+        const d = Math.abs(oR.y[i] - y) + (s2 !== side ? 0.85 : 0);
+        if (d < bd) { bd = d; best = i; }
+      }
+      map[k] = best;
+    }
+    for (let g = 0; g < this.thick.length; g++) {
+      const srcT = thick[g], srcS = stamp[g], dstT = this.thick[g], dstS = this.stamp[g];
+      for (let k = 0; k < nR.potRows; k++) {
+        const o = map[k] * W, n = k * W;
+        dstT.set(srcT.subarray(o, o + W), n);
+        dstS.set(srcS.subarray(o, o + W), n);
+      }
+      // extras (handle/spout): copy by normalized t if both exist
+      const oFrom = oR.handleFrom, nFrom = nR.handleFrom;
+      if (oFrom < H && nFrom < H) {
+        const oN = H - oFrom, nN = H - nFrom;
+        for (let k = nFrom; k < H; k++) {
+          const t = (k - nFrom) / Math.max(1, nN);
+          const ok = Math.min(H - 1, oFrom + Math.floor(t * oN));
+          dstT.set(srcT.subarray(ok * W, ok * W + W), k * W);
+          dstS.set(srcS.subarray(ok * W, ok * W + W), k * W);
+        }
+      }
+    }
   }
   clear() {
     for (const a of this.thick) a.fill(0);

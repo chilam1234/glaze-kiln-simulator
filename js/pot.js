@@ -1,21 +1,11 @@
 // Pot shapes: profile curves -> custom lathe geometry with arc-length UVs, plus per-row geometric maps
 // (radius, height, normal, curvature-derived edge/cavity maps, gravity direction) used by painting and firing.
 import * as THREE from 'three';
+import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js';
+export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID } from './shape.js';
 
 export const TEX_W = 1024;   // around the pot (u)
 export const TEX_H = 1024;   // along the profile, foot -> outer wall -> rim -> inner wall -> centre (v)
-
-function footAndBase(p, o) {
-  // Underside: recessed centre, foot ring with two edges, trimmed bevel up to the wall.
-  const { recessR, footIn, footOut, wallR, wallY } = o;
-  p.moveTo(0, 0.075);
-  p.lineTo(recessR, 0.075);
-  p.quadraticCurveTo(recessR + 0.06, 0.075, recessR + 0.07, 0.03);
-  p.quadraticCurveTo(footIn - 0.005, 0.0, footIn + 0.025, 0.0);
-  p.lineTo(footOut - 0.035, 0.0);
-  p.quadraticCurveTo(footOut, 0.0, footOut + 0.008, 0.04);
-  p.quadraticCurveTo(footOut + 0.02, wallY - 0.02, wallR, wallY);
-}
 
 const PROFILES = {
   cylinder() {
@@ -141,6 +131,11 @@ const PROFILES = {
 };
 export const SHAPES = Object.keys(PROFILES);
 
+export function extractCustom(kind) {
+  const def = PROFILES[kind]();
+  return extractFromPath(def.path, { kind, waxY: def.waxY, height: def.height });
+}
+
 function resample(pts, n) {
   // pts: array of [r,y]; returns n+1 points evenly spaced in arc length, and total length
   const cum = [0];
@@ -167,12 +162,21 @@ function gaussBlur1D(a, sigma) {
 }
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-export function buildPot(kind) {
-  const def = PROFILES[kind]();
-  const raw = def.path.getSpacedPoints(4000).map(p => [p.x, p.y]);
-  let { pts: dense } = resample(raw, 4000);
+export function buildPot(kind, opts) {
+  return finishPot(kind, PROFILES[kind](), opts);
+}
+export function buildCustomPot(spec, opts) {
+  return finishPot('custom', specToDef(spec), opts);
+}
+
+function finishPot(kind, def, opts = {}) {
+  const preview = !!opts.preview;
+  const nRaw = preview ? 900 : 4000;
+  const nDense = preview ? 1600 : 6000;
+  const raw = def.path.getSpacedPoints(nRaw).map(p => [p.x, p.y]);
+  let { pts: dense } = resample(raw, nRaw);
   // throwing ridges on near-vertical walls
-  if (def.ridges > 0) {
+  if (def.ridges > 0 && !preview) {
     const n = dense.length, out = [];
     for (let i = 0; i < n; i++) {
       const a = dense[Math.max(0, i - 1)], b = dense[Math.min(n - 1, i + 1)];
@@ -186,14 +190,32 @@ export function buildPot(kind) {
     }
     dense = out;
   }
-  const rs = resample(dense, 6000); dense = rs.pts; const L = rs.L;
+  const rs = resample(dense, nDense); dense = rs.pts; const L = rs.L;
 
-  // ---- texture rows: the thrown body uses rows [0, Hp); a handle (mug) gets its own rows [Hs, H) after a few
-  //      separator rows, at the same row spacing so brushes and flow behave the same on both ----
-  const H = TEX_H, hd = def.handle;
-  const hPts = hd ? hd.curve.getSpacedPoints(2000) : null, Lh = hd ? hd.curve.getLength() : 0, SEP = hd ? 6 : 0;
-  const ds = (L + Lh) / (H - SEP);
-  const Hp = hd ? Math.round(L / ds) : H, Hs = Hp + SEP;
+  // ---- texture rows: body [0, Hp); extras (handle, teapot spout) after separator rows ----
+  const extras = [];
+  if (def.handle) extras.push({ ...def.handle, kind: 'handle' });
+  if (def.spoutTube) extras.push({ ...def.spoutTube, kind: 'spout' });
+  const H = TEX_H, SEP = 6;
+  const extraL = extras.map(e => e.curve.getLength());
+  const Lh = extraL.reduce((a, b) => a + b, 0);
+  const nSep = extras.length * SEP;
+  const ds = (L + Lh) / Math.max(1, H - nSep);
+  const Hp = extras.length ? Math.round(L / ds) : H;
+  const ranges = [];
+  let cursor = Hp;
+  for (let i = 0; i < extras.length; i++) {
+    cursor += SEP;
+    const start = cursor;
+    const restL = extraL.slice(i).reduce((a, b) => a + b, 0);
+    const restRows = H - start;
+    const take = i === extras.length - 1 ? restRows : Math.max(8, Math.round(restRows * extraL[i] / Math.max(1e-6, restL)));
+    extras[i].v0 = start / H;
+    extras[i].v1 = (start + take) / H;
+    ranges.push({ start, end: start + take, extra: extras[i] });
+    cursor = start + take;
+  }
+
   const r = new Float32Array(H), y = new Float32Array(H), nr = new Float32Array(H), ny = new Float32Array(H), kap = new Float32Array(H);
   for (let k = 0; k < Hp; k++) {
     const v = (k + 0.5) / Hp;
@@ -202,9 +224,8 @@ export function buildPot(kind) {
     const tx = b[0] - a[0], ty = b[1] - a[1], tl = Math.hypot(tx, ty) || 1;
     nr[k] = ty / tl; ny[k] = -tx / tl;
   }
-  // signed curvature (positive = convex) via tangent angle change
   const ang = new Float32Array(Hp);
-  for (let k = 0; k < Hp; k++) ang[k] = Math.atan2(-nr[k], ny[k]); // tangent angle
+  for (let k = 0; k < Hp; k++) ang[k] = Math.atan2(-nr[k], ny[k]);
   for (let k = 0; k < Hp; k++) {
     const a = ang[Math.max(0, k - 1)], b = ang[Math.min(Hp - 1, k + 1)];
     let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
@@ -224,29 +245,38 @@ export function buildPot(kind) {
     w[k] = Math.sqrt(r[k] * r[k] + 0.09 * 0.09);
     wax[k] = y[k] < def.waxY ? 1 : 0;
   }
-  // separator rows: never glazed, block every kind of flow between the body and the handle
-  for (let k = Hp; k < Hs; k++) { wax[k] = 1; sep[k] = 1; r[k] = 0.05; y[k] = def.height; w[k] = 0.05; }
-  // handle rows: a tube around its centre curve. Per row: centre point + frame, so noise and glaze live on the real surface
-  const frame = hd ? { cx: new Float32Array(H), cy: new Float32Array(H), cz: new Float32Array(H), nx: new Float32Array(H), ny: new Float32Array(H), nz: new Float32Array(H), bx: new Float32Array(H), by: new Float32Array(H), bz: new Float32Array(H), from: Hs } : null;
-  if (hd) {
-    const Hh = H - Hs, B = new THREE.Vector3(0, 0, 1);
-    for (let k = Hs; k < H; k++) {
-      const t = (k - Hs + 0.5) / Hh, c = hd.curve.getPointAt(t), T = hd.curve.getTangentAt(t), Nn = new THREE.Vector3().crossVectors(T, B).normalize();
-      r[k] = hd.radius; y[k] = c.y; w[k] = hd.radius;
-      frame.cx[k] = c.x; frame.cy[k] = c.y; frame.cz[k] = c.z; frame.nx[k] = Nn.x; frame.ny[k] = Nn.y; frame.nz[k] = Nn.z; frame.bx[k] = B.x; frame.by[k] = B.y; frame.bz[k] = B.z;
+  let handleFrom = H, handleTo = H, spoutFrom = H, spoutTo = H;
+  const frame = extras.length ? { cx: new Float32Array(H), cy: new Float32Array(H), cz: new Float32Array(H), nx: new Float32Array(H), ny: new Float32Array(H), nz: new Float32Array(H), bx: new Float32Array(H), by: new Float32Array(H), bz: new Float32Array(H), from: ranges[0].start } : null;
+  const Bv = new THREE.Vector3(0, 0, 1);
+  let sepAt = Hp;
+  for (const rg of ranges) {
+    for (let k = sepAt; k < rg.start; k++) { wax[k] = 1; sep[k] = 1; r[k] = 0.05; y[k] = def.height; w[k] = 0.05; }
+    const hd = rg.extra, Hh = Math.max(1, rg.end - rg.start);
+    if (hd.kind === 'handle') { handleFrom = rg.start; handleTo = rg.end; }
+    if (hd.kind === 'spout') { spoutFrom = rg.start; spoutTo = rg.end; }
+    for (let k = rg.start; k < rg.end; k++) {
+      const t = (k - rg.start + 0.5) / Hh;
+      const tt = Math.min(1, Math.max(0, t));
+      const c = hd.curve.getPointAt(tt), T = hd.curve.getTangentAt(tt), Nn = new THREE.Vector3().crossVectors(T, Bv).normalize();
+      const rad = hd.radius + ((hd.radiusEnd ?? hd.radius) - hd.radius) * tt;
+      r[k] = rad; y[k] = c.y; w[k] = rad;
+      frame.cx[k] = c.x; frame.cy[k] = c.y; frame.cz[k] = c.z; frame.nx[k] = Nn.x; frame.ny[k] = Nn.y; frame.nz[k] = Nn.z; frame.bx[k] = Bv.x; frame.by[k] = Bv.y; frame.bz[k] = Bv.z;
       nr[k] = 0; ny[k] = 0; kap[k] = 0;
       steep[k] = Math.min(1, Math.abs(T.y)); dir[k] = T.y > 1e-3 ? -1 : (T.y < -1e-3 ? 1 : 0);
-      // a round strap breaks a little everywhere; glaze gathers where it joins the wall
-      edge[k] = 0.3; const end = Math.min(t, 1 - t); cavity[k] = 0.7 * (1 - smooth(0.02, 0.09, end));
+      edge[k] = 0.3; const end = Math.min(tt, 1 - tt); cavity[k] = 0.7 * (1 - smooth(0.02, 0.09, end));
     }
+    sepAt = rg.end;
   }
-  const rows = { r, y, nr, ny, edge, cavity, dir, steep, w, wax, sep, ds, L, kap, potRows: Hp, handleFrom: hd ? Hs : H, frame };
+  const rows = { r, y, nr, ny, edge, cavity, dir, steep, w, wax, sep, ds, L, kap, potRows: Hp, handleFrom, handleTo, spoutFrom, spoutTo, frame };
 
-  // ---- geometry ----
-  const vs = Hp / H;   // the body's share of the texture's v range
-  const lathe = makeLathe(dense, 480, 192, vs, def), latheLo = makeLathe(dense, 200, 72, vs, def);
-  const geo = hd ? mergeGeo(lathe, makeTube(hd, 200, 48, Hs / H)) : lathe;
-  const pickGeometry = hd ? mergeGeo(latheLo, makeTube(hd, 80, 16, Hs / H)) : latheLo;   // low-res proxy with identical UVs, for fast raycasts
+  const vs = Hp / H;
+  const latheN = preview ? 180 : 480, latheS = preview ? 72 : 192;
+  const lathe = makeLathe(dense, latheN, latheS, vs, def), latheLo = makeLathe(dense, 200, 72, vs, def);
+  let geo = lathe, pickGeometry = latheLo;
+  for (const ex of extras) {
+    geo = mergeGeo(geo, makeTube(ex, preview ? 90 : 200, preview ? 20 : 48, ex.v0, ex.v1));
+    pickGeometry = mergeGeo(pickGeometry, makeTube(ex, 80, 16, ex.v0, ex.v1));
+  }
   function outerRadiusAt(h) {
     let best = 0;
     for (let k = 0; k < Hp; k++) if (Math.abs(y[k] - h) < 0.02 && r[k] > best) best = r[k];
@@ -255,26 +285,27 @@ export function buildPot(kind) {
   return { kind, geometry: geo, pickGeometry, rows, height: def.height, waxY: def.waxY, L, outerRadiusAt, elev: def.elev };
 }
 
-// tube around a curve, u around the tube (theta = u*2pi on the N/B frame, as in the sim rows), v from v0 to 1 along the curve
-function makeTube(hd, NS, SEG, v0) {
+// tube around a curve, u around the tube (theta = u*2pi on the N/B frame), v from v0 to v1 along the curve
+function makeTube(hd, NS, SEG, v0, v1 = 1) {
   const pos = [], nor = [], uv = [], index = [], B = new THREE.Vector3(0, 0, 1);
+  const r0 = hd.radius, r1 = hd.radiusEnd ?? hd.radius;
   for (let i = 0; i <= NS; i++) {
     const t = i / NS, c = hd.curve.getPointAt(t), T = hd.curve.getTangentAt(t), Nn = new THREE.Vector3().crossVectors(T, B).normalize();
+    const rad = r0 + (r1 - r0) * t;
     for (let j = 0; j <= SEG; j++) {
       const th = j / SEG * Math.PI * 2, cs = Math.cos(th), sn = Math.sin(th);
-      const f = hd.flat;   // slightly flattened strap: thinner across the pull than along B
-      const ox = Nn.x * cs * hd.radius * f + B.x * sn * hd.radius, oy = Nn.y * cs * hd.radius * f + B.y * sn * hd.radius, oz = Nn.z * cs * hd.radius * f + B.z * sn * hd.radius;
+      const f = hd.flat;
+      const ox = Nn.x * cs * rad * f + B.x * sn * rad, oy = Nn.y * cs * rad * f + B.y * sn * rad, oz = Nn.z * cs * rad * f + B.z * sn * rad;
       pos.push(c.x + ox, c.y + oy, c.z + oz);
       const nx = Nn.x * cs / f + B.x * sn, ny = Nn.y * cs / f + B.y * sn, nz = Nn.z * cs / f + B.z * sn, nl = Math.hypot(nx, ny, nz);
       nor.push(nx / nl, ny / nl, nz / nl);
-      uv.push(j / SEG, v0 + (1 - v0) * (t * (NS) / NS));
+      uv.push(j / SEG, v0 + (v1 - v0) * t);
     }
   }
   for (let i = 0; i < NS; i++) for (let j = 0; j < SEG; j++) { const a = i * (SEG + 1) + j, b = a + SEG + 1; index.push(a, b, a + 1, a + 1, b, b + 1); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(index);
-  // outward winding check
   const A = new THREE.Vector3().fromArray(pos, 0), Bv = new THREE.Vector3().fromArray(pos, (SEG + 1) * 3), C = new THREE.Vector3().fromArray(pos, 3);
   const fn = new THREE.Vector3().subVectors(Bv, A).cross(new THREE.Vector3().subVectors(C, A));
   if (fn.dot(new THREE.Vector3().fromArray(nor, 0)) < 0) { const ix = g.index.array; for (let q = 0; q < ix.length; q += 3) { const tmp = ix[q + 1]; ix[q + 1] = ix[q + 2]; ix[q + 2] = tmp; } }
@@ -302,7 +333,17 @@ function makeLathe(dense, NS, SEG, vs = 1, def = {}) {
     for (let j = 0; j <= SEG; j++) {
       const u = j / SEG, th = u * Math.PI * 2, c = Math.cos(th), s = Math.sin(th);
       const idx = i * (SEG + 1) + j;
-      const wb = def.wobble ? def.wobble(th, p[1], def.height) : null, rr = p[0] * (wb ? wb.sr : 1), yy = p[1] + (wb ? wb.dy : 0);
+      const wb = def.wobble ? def.wobble(th, p[1], def.height) : null;
+      let rr = p[0] * (wb ? wb.sr : 1), yy = p[1] + (wb ? wb.dy : 0);
+      if (def.lip && pnr > 0.15) {
+        let dth = th - def.lip.theta;
+        dth = Math.atan2(Math.sin(dth), Math.cos(dth));
+        const ang = Math.exp(-(dth * dth) / (2 * def.lip.sigma * def.lip.sigma));
+        const ny = (p[1] - (def.height - def.lip.span)) / Math.max(1e-4, def.lip.span);
+        const vert = ny <= 0 ? 0 : ny >= 1 ? Math.max(0, 1.15 - ny) * Math.max(0, 1.15 - ny) : ny * ny * (3 - 2 * ny);
+        rr += def.lip.amt * ang * vert;
+        yy += def.lip.amt * 0.14 * ang * vert;
+      }
       pos[idx * 3] = rr * c; pos[idx * 3 + 1] = yy; pos[idx * 3 + 2] = rr * s;
       nor[idx * 3] = pnr * c; nor[idx * 3 + 1] = pny; nor[idx * 3 + 2] = pnr * s;
       uv[idx * 2] = u; uv[idx * 2 + 1] = v * vs;
@@ -313,7 +354,6 @@ function makeLathe(dense, NS, SEG, vs = 1, def = {}) {
     const a = i * (SEG + 1) + j, b = a + SEG + 1, c = a + 1, d = b + 1;
     index.push(a, c, b, c, d, b);
   }
-  // make sure winding faces outward (compare face normal with vertex normal on a wall quad)
   {
     const i = Math.floor(NS * 0.3), a = i * (SEG + 1), b = a + SEG + 1, c = a + 1;
     const A = new THREE.Vector3().fromArray(pos, a * 3), B = new THREE.Vector3().fromArray(pos, b * 3), C = new THREE.Vector3().fromArray(pos, c * 3);
