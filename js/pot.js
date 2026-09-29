@@ -2,7 +2,7 @@
 // (radius, height, normal, curvature-derived edge/cavity maps, gravity direction) used by painting and firing.
 import * as THREE from 'three';
 import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js';
-export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID } from './shape.js';
+export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt } from './shape.js';
 
 export const TEX_W = 1024;   // around the pot (u)
 export const TEX_H = 1024;   // along the profile, foot -> outer wall -> rim -> inner wall -> centre (v)
@@ -258,7 +258,7 @@ function finishPot(kind, def, opts = {}) {
       const t = (k - rg.start + 0.5) / Hh;
       const tt = Math.min(1, Math.max(0, t));
       const c = hd.curve.getPointAt(tt), T = hd.curve.getTangentAt(tt), Nn = new THREE.Vector3().crossVectors(T, Bv).normalize();
-      const rad = hd.radius + ((hd.radiusEnd ?? hd.radius) - hd.radius) * tt;
+      const rad = extraRadius(hd, tt);
       r[k] = rad; y[k] = c.y; w[k] = rad;
       frame.cx[k] = c.x; frame.cy[k] = c.y; frame.cz[k] = c.z; frame.nx[k] = Nn.x; frame.ny[k] = Nn.y; frame.nz[k] = Nn.z; frame.bx[k] = Bv.x; frame.by[k] = Bv.y; frame.bz[k] = Bv.z;
       nr[k] = 0; ny[k] = 0; kap[k] = 0;
@@ -285,13 +285,19 @@ function finishPot(kind, def, opts = {}) {
   return { kind, geometry: geo, pickGeometry, rows, height: def.height, waxY: def.waxY, L, outerRadiusAt, elev: def.elev };
 }
 
+function extraRadius(hd, t) {
+  const r0 = hd.radius, r1 = hd.radiusEnd ?? hd.radius;
+  const p = hd.radiusTaper ?? 1;
+  const tt = p === 1 ? t : Math.pow(Math.min(1, Math.max(0, t)), p);
+  return r0 + (r1 - r0) * tt;
+}
+
 // tube around a curve, u around the tube (theta = u*2pi on the N/B frame), v from v0 to v1 along the curve
 function makeTube(hd, NS, SEG, v0, v1 = 1) {
   const pos = [], nor = [], uv = [], index = [], B = new THREE.Vector3(0, 0, 1);
-  const r0 = hd.radius, r1 = hd.radiusEnd ?? hd.radius;
   for (let i = 0; i <= NS; i++) {
     const t = i / NS, c = hd.curve.getPointAt(t), T = hd.curve.getTangentAt(t), Nn = new THREE.Vector3().crossVectors(T, B).normalize();
-    const rad = r0 + (r1 - r0) * t;
+    const rad = extraRadius(hd, t);
     for (let j = 0; j <= SEG; j++) {
       const th = j / SEG * Math.PI * 2, cs = Math.cos(th), sn = Math.sin(th);
       const f = hd.flat;

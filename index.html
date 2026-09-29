@@ -43,17 +43,18 @@
         <button data-shape="custom" title="Tweak the current outline with draggable nodes">Custom</button>
       </div>
       <div id="customOpts" hidden>
-        <p class="hint" id="customHint">Drag the red nodes on the pot. Grey dots pull the wall bulge.</p>
+        <p class="hint" id="customHint">Drag the red nodes. Tap or double-click the outline to add a node; select a node, then Delete to remove it. Grey dots pull the wall bulge.</p>
         <div class="dims" id="capRow"><span>Capacity</span> <b id="capOut">—</b> ml</div>
         <div class="row node-row">
-          <span>Profile nodes</span>
+          <span>Profile nodes <b id="nodeCount">0/12</b></span>
           <button type="button" id="nodeSub" title="Remove a middle node">−</button>
           <button type="button" id="nodeAdd" title="Add a middle node">+</button>
+          <button type="button" id="nodeDel" class="node-del" title="Delete the selected middle node">Delete</button>
         </div>
         <label class="slider">Height <output id="customHOut"></output>
           <input type="range" id="customH" min="4" max="36" step="0.1"></label>
         <label class="slider">Rim Ø <output id="customRimOut"></output>
-          <input type="range" id="customRim" min="4" max="40" step="0.1"></label>
+          <input type="range" id="customRim" min="2.5" max="54" step="0.1"></label>
         <label class="slider">Foot Ø <output id="customFootOut"></output>
           <input type="range" id="customFoot" min="3" max="32" step="0.1"></label>
         <label class="slider">Wall <output id="customWallOut"></output>
@@ -134,6 +135,9 @@
 </aside>
 <main id="view">
   <div id="dimHud" hidden></div>
+  <div id="shapeTools" hidden>
+    <button type="button" id="nodeDelHud">Delete node</button>
+  </div>
   <div id="sectionOverlay" hidden>
     <button type="button" id="sectionClose" aria-label="Close cross-section">×</button>
     <canvas id="sectionCanvas"></canvas>

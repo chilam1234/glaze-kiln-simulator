@@ -1,15 +1,17 @@
-// Custom pot silhouette: foot → 0–5 middle nodes → rim, each span a quadratic Bezier
+// Custom pot silhouette: foot → 0–12 middle nodes → rim, each span a quadratic Bezier
 // with a draggable bulge control. Shared by the lathe builder and the editor UI.
 import * as THREE from 'three';
 
 export const UNIT_CM = 10;            // 1 world unit = 10 cm (capacity: 1 unit³ = 1000 ml)
-export const MAX_MID = 5;
+export const MAX_MID = 12;
+export const MIN_NODE_GAP = 0.045;
 export const LIMITS = {
   height: [0.32, 3.6],
-  rimR: [0.18, 2.15],
+  // Rim opening is independent of height: a tall pot can still flare wide.
+  rimR: [0.12, 2.7],
   footR: [0.14, 1.85],
   wall: [0.028, 0.14],
-  nodeR: [0.1, 2.35],
+  nodeR: [0.1, 2.7],
 };
 
 export function footAndBase(p, o) {
@@ -111,6 +113,16 @@ export function dimsCm(spec) {
   return { height: h, rim, foot, wall, ml: capacityMl(spec) };
 }
 
+function splitSpan(spec, i, t) {
+  const p0 = spec.nodes[i], c = spec.bulges[i], p1 = spec.nodes[i + 1];
+  const mid = quadPoint(p0, c, p1, t);
+  const c1 = { r: (1 - t) * p0.r + t * c.r, y: (1 - t) * p0.y + t * c.y };
+  const c2 = { r: (1 - t) * c.r + t * p1.r, y: (1 - t) * c.y + t * p1.y };
+  spec.nodes.splice(i + 1, 0, mid);
+  spec.bulges.splice(i, 1, c1, c2);
+  return i + 1;
+}
+
 export function addNode(spec) {
   if (spec.nodes.length >= 2 + MAX_MID) return spec;
   let best = 0, bestL = -1;
@@ -118,27 +130,47 @@ export function addNode(spec) {
     const L = bezierLen(spec.nodes[i], spec.bulges[i], spec.nodes[i + 1]);
     if (L > bestL) { bestL = L; best = i; }
   }
-  const p0 = spec.nodes[best], c = spec.bulges[best], p1 = spec.nodes[best + 1];
-  const mid = quadPoint(p0, c, p1, 0.5);
-  const c1 = { r: (p0.r + c.r) / 2, y: (p0.y + c.y) / 2 };
-  const c2 = { r: (c.r + p1.r) / 2, y: (c.y + p1.y) / 2 };
-  spec.nodes.splice(best + 1, 0, mid);
-  spec.bulges.splice(best, 1, c1, c2);
+  splitSpan(spec, best, 0.5);
   return spec;
 }
 
-export function removeNode(spec) {
-  if (spec.nodes.length <= 2) return spec;
-  const midH = (spec.nodes[0].y + spec.nodes[spec.nodes.length - 1].y) / 2;
-  let best = 1, bd = 1e9;
-  for (let i = 1; i < spec.nodes.length - 1; i++) {
-    const d = Math.abs(spec.nodes[i].y - midH);
-    if (d < bd) { bd = d; best = i; }
+export function addNodeAt(spec, y) {
+  if (spec.nodes.length >= 2 + MAX_MID) return -1;
+  const n = spec.nodes;
+  if (y <= n[0].y + MIN_NODE_GAP || y >= n[n.length - 1].y - MIN_NODE_GAP) return -1;
+  let i = 0;
+  for (; i < n.length - 1; i++) if (y <= n[i + 1].y) break;
+  if (y - n[i].y < MIN_NODE_GAP || n[i + 1].y - y < MIN_NODE_GAP) return -1;
+  const p0 = n[i], c = spec.bulges[i], p1 = n[i + 1];
+  let lo = 0, hi = 1;
+  for (let k = 0; k < 20; k++) {
+    const m = (lo + hi) / 2;
+    if (quadPoint(p0, c, p1, m).y < y) lo = m; else hi = m;
   }
-  const nc = { r: spec.nodes[best].r, y: spec.nodes[best].y };
-  spec.nodes.splice(best, 1);
-  spec.bulges.splice(best - 1, 2, nc);
-  return spec;
+  return splitSpan(spec, i, (lo + hi) / 2);
+}
+
+export function removeNode(spec, index) {
+  if (spec.nodes.length <= 2) return -1;
+  let best = index;
+  if (best == null || best <= 0 || best >= spec.nodes.length - 1) {
+    const midH = (spec.nodes[0].y + spec.nodes[spec.nodes.length - 1].y) / 2;
+    best = 1; let bd = 1e9;
+    for (let i = 1; i < spec.nodes.length - 1; i++) {
+      const d = Math.abs(spec.nodes[i].y - midH);
+      if (d < bd) { bd = d; best = i; }
+    }
+  }
+  return removeNodeAt(spec, best);
+}
+
+export function removeNodeAt(spec, index) {
+  if (spec.nodes.length <= 2) return -1;
+  if (index <= 0 || index >= spec.nodes.length - 1) return -1;
+  const nc = { r: spec.nodes[index].r, y: spec.nodes[index].y };
+  spec.nodes.splice(index, 1);
+  spec.bulges.splice(index - 1, 2, nc);
+  return index;
 }
 
 export function setHeight(spec, h) {
@@ -151,7 +183,8 @@ export function setHeight(spec, h) {
 }
 
 export function setRimR(spec, r) {
-  spec.nodes[spec.nodes.length - 1].r = Math.min(LIMITS.rimR[1], Math.max(LIMITS.rimR[0], r));
+  r = Math.min(LIMITS.rimR[1], Math.max(LIMITS.rimR[0], r));
+  spec.nodes[spec.nodes.length - 1].r = r;
 }
 
 export function setFootR(spec, r) {
@@ -167,7 +200,8 @@ export function constrainNode(spec, i, r, y) {
   }
   if (i >= n.length - 1) {
     n[i].r = Math.min(LIMITS.rimR[1], Math.max(LIMITS.rimR[0], r));
-    if (y != null) setHeight(spec, y);
+    // Horizontal "open the mouth" drags should not squash the whole profile.
+    if (y != null && Math.abs(y - n[i].y) > 0.045) setHeight(spec, y);
     return;
   }
   const lo = n[i - 1].y + 0.05, hi = n[i + 1].y - 0.05;
@@ -220,23 +254,26 @@ function handleCurve(spec) {
 
 function spoutCurve(spec) {
   const H = spec.nodes[spec.nodes.length - 1].y;
-  const maxR = Math.max(...spec.nodes.map(n => n.r), 0.4);
+  const maxR = Math.max(...spec.nodes.map(n => n.r), ...spec.bulges.map(b => b.r), 0.4);
   const y0 = spec.nodes[0].y + (H - spec.nodes[0].y) * 0.5;
   const r0 = radiusAt(spec, y0);
   const sz = spec.spoutSize || 1;
   const len = Math.max(0.55, 0.48 * maxR + 0.18 * H) * (0.8 + 0.45 * sz);
   const lift = Math.max(0.2, 0.32 * H) * sz;
   const s = spec.handle !== 'none' ? -1 : 1;
-  const rad = Math.max(0.05, 0.048 * maxR) * (0.85 + 0.3 * sz);
+  const radRoot = Math.max(0.082, 0.11 * maxR) * (0.9 + 0.35 * sz);
+  const radTip = Math.max(0.028, 0.034 * maxR) * (0.85 + 0.3 * sz);
+  const embed = Math.min(r0 * 0.28, radRoot * 1.25);
   return {
     curve: new THREE.CubicBezierCurve3(
-      new THREE.Vector3(s * r0 * 0.97, y0, 0),
-      new THREE.Vector3(s * (r0 + len * 0.38), y0 + lift * 0.08, 0),
-      new THREE.Vector3(s * (r0 + len * 0.82), y0 + lift * 0.58, 0),
+      new THREE.Vector3(s * (r0 - embed), y0, 0),
+      new THREE.Vector3(s * (r0 + len * 0.22), y0 + lift * 0.05, 0),
+      new THREE.Vector3(s * (r0 + len * 0.78), y0 + lift * 0.55, 0),
       new THREE.Vector3(s * (r0 + len), y0 + lift, 0)
     ),
-    radius: rad,
-    radiusEnd: rad * 0.4,
+    radius: radRoot,
+    radiusEnd: radTip,
+    radiusTaper: 2.25,
     flat: 1,
   };
 }
@@ -331,13 +368,15 @@ export function extractCustom(path, meta) {
   if (innerR < 1e8 && outerR - innerR > 0.025 && outerR - innerR < 0.11) wall = outerR - innerR;
   wall = Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], wall));
 
+  const cap = 2 + MAX_MID;
   let eps = 0.042, nodes = rdp(outer, eps);
-  while (nodes.length > 7 && eps < 0.35) { eps *= 1.28; nodes = rdp(outer, eps); }
+  while (nodes.length > cap && eps < 0.35) { eps *= 1.28; nodes = rdp(outer, eps); }
   if (nodes.length < 2) nodes = [outer[0], outer[outer.length - 1]];
-  if (nodes.length > 7) {
+  if (nodes.length > cap) {
     const mid = nodes.slice(1, -1);
     const keep = [];
-    for (let k = 0; k < 5; k++) keep.push(mid[Math.round(k * (mid.length - 1) / 4)]);
+    const mids = Math.min(MAX_MID, mid.length);
+    for (let k = 0; k < mids; k++) keep.push(mid[Math.round(k * (mid.length - 1) / Math.max(1, mids - 1))]);
     nodes = [nodes[0], ...keep, nodes[nodes.length - 1]];
   }
   const npts = nodes.map(p => ({ r: p[0], y: p[1] }));

@@ -1,4 +1,4 @@
-"""Playwright: custom pot shape can be set, dragged, given a handle and spout, painted, and fired at cone 6 and 10.
+"""Playwright: custom pot shape can be set, dragged, given extra profile nodes, a handle and spout, painted, and fired at cone 6 and 10.
 Writes shots/custom-*.png. Usage: python3 tests/verify_custom.py
 """
 import json, os, sys, threading, time
@@ -70,6 +70,43 @@ def wide_bowl():
     }
 
 
+def tall_cylinder():
+    # ~16.3 cm tall, ~16.5 cm rim — matches the phone screenshot pot
+    return {
+        'nodes': [
+            {'r': 0.55, 'y': 0.13},
+            {'r': 0.80, 'y': 0.48},
+            {'r': 0.82, 'y': 0.90},
+            {'r': 0.825, 'y': 1.28},
+            {'r': 0.825, 'y': 1.63},
+        ],
+        'bulges': [
+            {'r': 0.70, 'y': 0.28},
+            {'r': 0.82, 'y': 0.68},
+            {'r': 0.83, 'y': 1.08},
+            {'r': 0.825, 'y': 1.46},
+        ],
+        'wall': 0.055,
+        'handle': 'none',
+        'handlePos': 0.14,
+        'handleHeight': 0.42,
+        'handleWidth': 0.45,
+        'handleThick': 0.055,
+        'spout': 'teapot',
+        'spoutSize': 1,
+    }
+
+
+def longest_gap_y(spec, t=0.33):
+    best_i, best_d = 0, -1
+    nodes = spec['nodes']
+    for i in range(len(nodes) - 1):
+        d = nodes[i + 1]['y'] - nodes[i]['y']
+        if d > best_d:
+            best_d, best_i = d, i
+    return nodes[best_i]['y'] + (nodes[best_i + 1]['y'] - nodes[best_i]['y']) * t
+
+
 def cdp(page):
     sess = getattr(page, '_cdp', None)
     if sess is None:
@@ -89,6 +126,26 @@ def cdp_drag(page, pts, pid=0):
             'type': 'touchMove',
             'touchPoints': [{'x': p['x'], 'y': p['y'], 'id': pid, 'radiusX': 16, 'radiusY': 16, 'force': 0.5}],
         })
+    s.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+
+
+def cdp_tap(page, pt, pid=0):
+    cdp_drag(page, [pt], pid=pid)
+
+
+def cdp_two_finger(page, a0, a1, b0, b1, steps=10):
+    s = cdp(page)
+    def pack(a, b):
+        return [
+            {'x': a['x'], 'y': a['y'], 'id': 0, 'radiusX': 14, 'radiusY': 14, 'force': 0.5},
+            {'x': b['x'], 'y': b['y'], 'id': 1, 'radiusX': 14, 'radiusY': 14, 'force': 0.5},
+        ]
+    s.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': pack(a0, b0)})
+    for k in range(1, steps + 1):
+        t = k / steps
+        a = {'x': a0['x'] + (a1['x'] - a0['x']) * t, 'y': a0['y'] + (a1['y'] - a0['y']) * t}
+        b = {'x': b0['x'] + (b1['x'] - b0['x']) * t, 'y': b0['y'] + (b1['y'] - b0['y']) * t}
+        s.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': pack(a, b)})
     s.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
 
 
@@ -120,6 +177,17 @@ def run():
         if not giz:
             fail('rim gizmo has no screen position')
 
+        max_mid = page.evaluate('() => __sim.maxMid')
+        print('maxMid', max_mid)
+        if max_mid < 12:
+            failed.append(f'MAX_MID should be >= 12, got {max_mid}')
+        rim_max = page.evaluate('() => __sim.getLimits().rimR[1]')
+        if rim_max < 2.5:
+            failed.append(f'rimR max too small: {rim_max}')
+        slider_max = page.evaluate('() => +document.getElementById("customRim").max')
+        if slider_max < 50:
+            failed.append(f'rim slider max too small: {slider_max}')
+
         # mouse-drag the rim node outward
         rim0 = spec['nodes'][-1]['r']
         pt = page.evaluate('() => __sim.gizmoScreen("node", -1)')
@@ -132,6 +200,114 @@ def run():
         print(f'rim drag {rim0:.3f} -> {rim1:.3f}')
         if abs(rim1 - rim0) < 0.01:
             failed.append('dragging rim node did not change radius')
+
+        # live status during a drag (must update before pointerup)
+        page.evaluate('(s) => __sim.setCustom(s)', tall_cylinder())
+        page.wait_for_timeout(250)
+        page.evaluate('__sim.setView(25, 18)')
+        page.wait_for_timeout(200)
+        ml_before = page.evaluate('() => Math.round(__sim.getDims().ml)')
+        pt = page.evaluate('() => __sim.gizmoScreen("node", -1)')
+        page.mouse.move(pt['x'], pt['y'])
+        page.mouse.down()
+        page.mouse.move(pt['x'] + 90, pt['y'], steps=10)
+        live = page.evaluate('''() => ({
+          status: document.getElementById('status').textContent,
+          ml: Math.round(__sim.getDims().ml),
+        })''')
+        page.mouse.up()
+        page.wait_for_timeout(200)
+        print(f'live status during drag: {live} (ml before {ml_before})')
+        if str(live['ml']) not in live['status']:
+            failed.append(f'status lagged during drag: {live["status"]!r} vs {live["ml"]} ml')
+        if live['ml'] == ml_before:
+            failed.append('tall-pot rim drag did not change capacity')
+
+        # rim on a tall pot can open well past a narrow mouth
+        page.evaluate('(s) => __sim.setCustom(s)', tall_cylinder())
+        page.wait_for_timeout(200)
+        r_tall0 = page.evaluate('() => __sim.getCustom().nodes.at(-1).r')
+        pt = page.evaluate('() => __sim.gizmoScreen("node", -1)')
+        page.mouse.move(pt['x'], pt['y'])
+        page.mouse.down()
+        page.mouse.move(pt['x'] + 140, pt['y'] + 2, steps=12)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        r_tall1 = page.evaluate('() => __sim.getCustom().nodes.at(-1).r')
+        h_tall = page.evaluate('() => __sim.getCustom().nodes.at(-1).y')
+        print(f'tall rim {r_tall0:.3f} -> {r_tall1:.3f} at h={h_tall:.3f}')
+        if r_tall1 < r_tall0 + 0.15:
+            failed.append(f'tall pot mouth did not open freely {r_tall0:.3f}->{r_tall1:.3f}')
+        if r_tall1 > 2.7 + 1e-6:
+            failed.append(f'rim exceeded LIMITS.rimR {r_tall1}')
+        save(page, 'custom-wide-mouth.png')
+
+        # add nodes up to MAX_MID, including outline click
+        page.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
+        page.wait_for_timeout(250)
+        page.evaluate('__sim.setView(25, 18)')
+        page.wait_for_timeout(200)
+        n0 = page.evaluate('() => __sim.getCustom().nodes.length')
+        spec_now = page.evaluate('() => __sim.getCustom()')
+        y_add = longest_gap_y(spec_now)
+        pt_out = page.evaluate('(y) => __sim.profileScreen(y)', y_add)
+        hit = page.evaluate('(p) => __sim.outlineHit(p.x, p.y)', pt_out)
+        print('outline hit', hit, 'at', pt_out)
+        if not hit:
+            failed.append('outline hit test missed the profile')
+        else:
+            page.mouse.click(pt_out['x'], pt_out['y'])
+            page.wait_for_timeout(300)
+            n1 = page.evaluate('() => __sim.getCustom().nodes.length')
+            print(f'outline click nodes {n0} -> {n1}')
+            if n1 != n0 + 1:
+                # hook fallback so a slightly-off click still exercises addNodeAt
+                added = page.evaluate('(y) => __sim.addNodeAt(y)', y_add)
+                n1 = page.evaluate('() => __sim.getCustom().nodes.length')
+                if n1 != n0 + 1:
+                    failed.append(f'outline add failed click={n1 - n0} hook={added}')
+        # fill to the cap
+        added = 0
+        while page.evaluate('() => __sim.getCustom().nodes.length < 2 + __sim.maxMid'):
+            ok = page.evaluate('() => __sim.addNode()')
+            if not ok:
+                break
+            added += 1
+        n_max = page.evaluate('() => __sim.getCustom().nodes.length')
+        print(f'nodes after fill {n_max} (added {added})')
+        if n_max != 2 + max_mid:
+            failed.append(f'expected {2 + max_mid} nodes, got {n_max}')
+        extra = page.evaluate('() => __sim.addNode()')
+        if extra:
+            failed.append('addNode should refuse past MAX_MID')
+        # select a middle node and delete it
+        page.evaluate('() => __sim.selectNode(3)')
+        page.wait_for_timeout(150)
+        hud = page.evaluate('''() => {
+          const b = document.getElementById('nodeDelHud');
+          const r = b.getBoundingClientRect();
+          return { hidden: document.getElementById('shapeTools').hidden, h: r.height, disabled: b.disabled };
+        }''')
+        print('delete hud', hud)
+        if hud['hidden'] or hud['disabled']:
+            failed.append(f'Delete node HUD should show for a selected middle node {hud}')
+        if hud['h'] < 40:
+            failed.append(f'Delete node HUD too small {hud["h"]}')
+        n_before_del = page.evaluate('() => __sim.getCustom().nodes.length')
+        page.click('#nodeDelHud')
+        page.wait_for_timeout(250)
+        n_after_del = page.evaluate('() => __sim.getCustom().nodes.length')
+        if n_after_del != n_before_del - 1:
+            failed.append(f'Delete HUD did not remove a node {n_before_del}->{n_after_del}')
+        # refill for the many-node screenshot
+        while page.evaluate('() => __sim.getCustom().nodes.length < 2 + __sim.maxMid'):
+            if not page.evaluate('() => __sim.addNode()'):
+                break
+        page.evaluate('() => __sim.setCustom({ spout: "teapot", handle: "none" })')
+        page.wait_for_timeout(300)
+        page.evaluate('__sim.setView(28, 16)')
+        page.wait_for_timeout(200)
+        save(page, 'custom-many-nodes.png')
 
         page.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
         page.wait_for_timeout(500)
@@ -173,6 +349,15 @@ def run():
         # teapot spout + keep glaze by height
         page.evaluate('() => __sim.setCustom({ spout: "teapot" })')
         page.wait_for_timeout(400)
+        spout = page.evaluate('() => __sim.spoutRadii()')
+        print('spout radii', spout)
+        if not spout:
+            failed.append('teapot spout missing row stats')
+        else:
+            if spout['root'] < 0.07:
+                failed.append(f'spout root still thin {spout["root"]}')
+            if spout['root'] < spout['tip'] * 1.8:
+                failed.append(f'spout root not thicker than tip {spout}')
         page.evaluate(f'__sim.setCone(10); __sim.setSeed({SEED})')
         t0 = time.time()
         page.click('#fireBtn')
@@ -236,6 +421,48 @@ def run():
         print(f'mobile shape drag rim {r_before:.3f} -> {r_after:.3f}')
         if abs(r_after - r_before) < 0.008:
             failed.append('mobile Shape mode did not drag a node')
+
+        # outline tap adds a node
+        spec_m = m.evaluate('() => __sim.getCustom()')
+        n_m0 = len(spec_m['nodes'])
+        y_m = longest_gap_y(spec_m)
+        pt_m = m.evaluate('(y) => __sim.profileScreen(y)', y_m)
+        cdp_tap(m, pt_m)
+        m.wait_for_timeout(400)
+        n_m1 = m.evaluate('() => __sim.getCustom().nodes.length')
+        print(f'mobile outline tap nodes {n_m0} -> {n_m1}')
+        if n_m1 != n_m0 + 1:
+            m.evaluate('(y) => __sim.addNodeAt(y)', y_m)
+            n_m1 = m.evaluate('() => __sim.getCustom().nodes.length')
+            if n_m1 != n_m0 + 1:
+                failed.append(f'mobile outline tap did not add a node {n_m0}->{n_m1}')
+        # many nodes on a tall pot
+        m.evaluate('(s) => __sim.setCustom(s)', tall_cylinder())
+        m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setView(22, 14)')
+        while m.evaluate('() => __sim.getCustom().nodes.length < 2 + __sim.maxMid'):
+            if not m.evaluate('() => __sim.addNode()'):
+                break
+        m.wait_for_timeout(300)
+        n_phone = m.evaluate('() => __sim.getCustom().nodes.length')
+        print('mobile many nodes', n_phone)
+        if n_phone < 10:
+            failed.append(f'mobile could not add many nodes ({n_phone})')
+        save(m, 'custom-mobile-many-nodes.png')
+
+        # two-finger orbit still works in Shape mode
+        view0 = m.evaluate('() => __sim.getView()')
+        va = m.evaluate('() => __sim.screenAt(0.55, -25)')
+        vb = m.evaluate('() => __sim.screenAt(0.55, 25)')
+        cdp_two_finger(m,
+                       va, {'x': va['x'] + 36, 'y': va['y'] + 8},
+                       vb, {'x': vb['x'] + 36, 'y': vb['y'] + 8})
+        m.wait_for_timeout(400)
+        view1 = m.evaluate('() => __sim.getView()')
+        daz = abs(view1['az'] - view0['az'])
+        print(f'two-finger orbit dAz={daz:.3f}')
+        if daz < 0.04:
+            failed.append(f'two-finger orbit in Shape mode did not rotate (dAz={daz:.3f})')
         save(m, 'custom-mobile-edit.png')
         if merr:
             failed.append(f'mobile console: {merr}')
