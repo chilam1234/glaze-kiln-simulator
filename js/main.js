@@ -108,7 +108,11 @@ function setShape(kind) {
     customSpec.source = src;
     ui.shape = 'custom';
     applyBuiltPot(buildCustomPot(customSpec), { remap: true });
-    if (isMobileLayout()) { ui.touchMode = 'shape'; ui.touchOrbit = false; syncOrbitTouches(); refreshUI(); }
+    if (isMobileLayout()) {
+      ui.touchMode = 'shape'; ui.touchOrbit = false; syncOrbitTouches();
+      document.body.classList.add('sheet-collapsed');
+      refreshUI();
+    }
     const d = dimsCm(customSpec);
     setStatus(`Custom ${src} — drag the red nodes. ${Math.round(d.ml)} ml.`);
     return;
@@ -446,6 +450,7 @@ document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => b.onclick = ()
 document.querySelectorAll('#touchMode button').forEach(b => b.onclick = () => {
   ui.touchMode = b.dataset.mode;
   ui.touchOrbit = ui.touchMode === 'orbit';
+  if (isMobileLayout() && ui.touchMode === 'shape') document.body.classList.add('sheet-collapsed');
   syncOrbitTouches();
   refreshUI();
   rebuildGizmos();

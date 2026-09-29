@@ -202,21 +202,26 @@ def run():
         mode = m.evaluate('() => __sim.touchMode')
         if mode != 'shape':
             failed.append(f'mobile custom should enter Shape mode, got {mode}')
+        m.evaluate('__sim.setSheet("pot", true)')
+        m.wait_for_timeout(200)
         tabs = m.evaluate('''() => {
           const bar = document.getElementById('mobileBar').getBoundingClientRect();
-          const ov = document.getElementById('sectionOverlay').getBoundingClientRect();
+          const view = document.getElementById('view').getBoundingClientRect();
           const tabs = [...document.querySelectorAll('#mobileBar button')].map(b => {
             const r = b.getBoundingClientRect();
             return { t: b.textContent.trim(), h: r.height, y: r.y };
           });
-          return { barY: bar.y, innerH: innerHeight, overlayHidden: document.getElementById('sectionOverlay').hidden, tabs };
+          return { barY: bar.y, innerH: innerHeight, viewH: view.height,
+                   overlayHidden: document.getElementById('sectionOverlay').hidden, tabs };
         }''')
         print('mobile tabs', json.dumps(tabs))
         small = [t for t in tabs['tabs'] if t['h'] < 40]
         if small:
             failed.append(f'mobile small targets {small}')
-        if tabs['barY'] < tabs['innerH'] * 0.45:
-            failed.append('mobile tab bar not at the bottom')
+        if tabs['viewH'] < tabs['innerH'] * 0.38:
+            failed.append(f'mobile canvas too short {tabs["viewH"]} vs {tabs["innerH"]}')
+        if tabs['barY'] + 8 < tabs['viewH']:
+            failed.append('mobile tab bar overlaps the canvas')
         m.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
         m.evaluate('__sim.setTouchMode("shape")')
         m.evaluate('__sim.setView(20, 16)')
@@ -225,7 +230,7 @@ def run():
         pt = m.evaluate('() => __sim.gizmoScreen("node", -1)')
         if not pt:
             fail('mobile rim gizmo missing')
-        cdp_drag(m, [pt, {'x': pt['x'] + 40, 'y': pt['y'] + 6}, {'x': pt['x'] + 70, 'y': pt['y'] + 10}])
+        cdp_drag(m, [pt, {'x': pt['x'] + 28, 'y': pt['y'] - 6}, {'x': pt['x'] + 48, 'y': pt['y'] - 10}])
         m.wait_for_timeout(500)
         r_after = m.evaluate('() => __sim.getCustom().nodes.at(-1).r')
         print(f'mobile shape drag rim {r_before:.3f} -> {r_after:.3f}')
