@@ -272,24 +272,25 @@ function gizmoScreenOf(kind, index) {
   const rect = renderer.domElement.getBoundingClientRect();
   return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height };
 }
-function hitGizmo(clientX, clientY) {
+function nearestGizmoScreen(clientX, clientY) {
   if (!showingGizmos()) return null;
   const rect = renderer.domElement.getBoundingClientRect();
-  ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-  camera.updateMatrixWorld(); raycaster.setFromCamera(ndc, camera);
-  const hits = raycaster.intersectObjects(gizmoGroup.children, false).filter(h => h.object.userData && h.object.userData.kind);
-  if (hits[0]) return hits[0].object.userData;
-  // fat-finger: nearest gizmo in screen space
-  const lim = isMobileLayout() ? 40 : 18;
-  let best = null, bd = lim;
+  camera.updateMatrixWorld();
+  let best = null, bd = 1e9;
   for (const obj of gizmoGroup.children) {
     const d = obj.userData; if (!d || !d.kind || d.vis) continue;
     const sp = obj.position.clone().project(camera);
     const sx = rect.left + (sp.x + 1) / 2 * rect.width, sy = rect.top + (1 - sp.y) / 2 * rect.height;
     const dist = Math.hypot(sx - clientX, sy - clientY);
-    if (dist < bd) { bd = dist; best = d; }
+    if (dist < bd) { bd = dist; best = { kind: d.kind, index: d.index, dist }; }
   }
   return best;
+}
+function hitGizmo(clientX, clientY) {
+  const g = nearestGizmoScreen(clientX, clientY);
+  const lim = isMobileLayout() ? 40 : 18;
+  if (g && g.dist <= lim) return g;
+  return null;
 }
 function hitOutline(clientX, clientY) {
   if (!showingGizmos() || !customSpec) return null;
@@ -403,7 +404,9 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || ui.simState !== 'raw' || !mesh) return;
   if (showingGizmos() && (e.pointerType !== 'touch' || canShapeTouch())) {
     const g = hitGizmo(e.clientX, e.clientY);
-    if (g) {
+    const outline = hitOutline(e.clientX, e.clientY);
+    const preferOutline = outline && (!g || outline.dist + 8 < g.dist);
+    if (g && !preferOutline) {
       e.preventDefault();
       if (e.pointerType !== 'touch') controls.enabled = false;
       shaping = true; shapePointer = e.pointerId; shapeTarget = { kind: g.kind, index: g.index };
@@ -411,7 +414,6 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
       renderer.domElement.setPointerCapture(e.pointerId);
       return;
     }
-    const outline = hitOutline(e.clientX, e.clientY);
     if (outline) {
       e.preventDefault();
       if (e.pointerType !== 'touch') controls.enabled = false;
@@ -924,6 +926,25 @@ window.__sim = {
     return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height, r };
   },
   outlineHit(x, y) { return hitOutline(x, y); },
+  outlineTapTarget() {
+    if (!customSpec) return null;
+    const pts = profileLine.userData.pts;
+    if (!pts || !pts.length) return null;
+    const az = gizmoAz(), s = Math.sin(az), c = Math.cos(az);
+    const rect = renderer.domElement.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    const v = new THREE.Vector3();
+    let best = null, bestClear = -1;
+    for (const p of pts) {
+      if (p.y <= customSpec.nodes[0].y + 0.06 || p.y >= customSpec.nodes[customSpec.nodes.length - 1].y - 0.06) continue;
+      v.set(p.r * s, p.y, p.r * c).project(camera);
+      const sx = rect.left + (v.x + 1) / 2 * rect.width, sy = rect.top + (1 - v.y) / 2 * rect.height;
+      const g = nearestGizmoScreen(sx, sy);
+      const clear = g ? g.dist : 80;
+      if (clear > bestClear) { bestClear = clear; best = { x: sx, y: sy, r: p.r, height: p.y, clear }; }
+    }
+    return best;
+  },
   spoutRadii() {
     const R = pot.rows; if (R.spoutFrom >= TEX_H) return null;
     return { root: R.r[R.spoutFrom], tip: R.r[Math.max(R.spoutFrom, R.spoutTo - 1)], n: Math.max(0, R.spoutTo - R.spoutFrom) };

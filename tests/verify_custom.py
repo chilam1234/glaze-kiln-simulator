@@ -97,16 +97,6 @@ def tall_cylinder():
     }
 
 
-def longest_gap_y(spec, t=0.33):
-    best_i, best_d = 0, -1
-    nodes = spec['nodes']
-    for i in range(len(nodes) - 1):
-        d = nodes[i + 1]['y'] - nodes[i]['y']
-        if d > best_d:
-            best_d, best_i = d, i
-    return nodes[best_i]['y'] + (nodes[best_i + 1]['y'] - nodes[best_i]['y']) * t
-
-
 def cdp(page):
     sess = getattr(page, '_cdp', None)
     if sess is None:
@@ -248,24 +238,17 @@ def run():
         page.evaluate('__sim.setView(25, 18)')
         page.wait_for_timeout(200)
         n0 = page.evaluate('() => __sim.getCustom().nodes.length')
-        spec_now = page.evaluate('() => __sim.getCustom()')
-        y_add = longest_gap_y(spec_now)
-        pt_out = page.evaluate('(y) => __sim.profileScreen(y)', y_add)
-        hit = page.evaluate('(p) => __sim.outlineHit(p.x, p.y)', pt_out)
-        print('outline hit', hit, 'at', pt_out)
-        if not hit:
-            failed.append('outline hit test missed the profile')
+        pt_out = page.evaluate('() => __sim.outlineTapTarget()')
+        print('outline tap target', pt_out)
+        if not pt_out or pt_out.get('clear', 0) < 12:
+            failed.append(f'no clear outline tap target: {pt_out}')
         else:
             page.mouse.click(pt_out['x'], pt_out['y'])
             page.wait_for_timeout(300)
             n1 = page.evaluate('() => __sim.getCustom().nodes.length')
             print(f'outline click nodes {n0} -> {n1}')
             if n1 != n0 + 1:
-                # hook fallback so a slightly-off click still exercises addNodeAt
-                added = page.evaluate('(y) => __sim.addNodeAt(y)', y_add)
-                n1 = page.evaluate('() => __sim.getCustom().nodes.length')
-                if n1 != n0 + 1:
-                    failed.append(f'outline add failed click={n1 - n0} hook={added}')
+                failed.append(f'outline click did not add a node {n0}->{n1}')
         # fill to the cap
         added = 0
         while page.evaluate('() => __sim.getCustom().nodes.length < 2 + __sim.maxMid'):
@@ -299,11 +282,12 @@ def run():
         n_after_del = page.evaluate('() => __sim.getCustom().nodes.length')
         if n_after_del != n_before_del - 1:
             failed.append(f'Delete HUD did not remove a node {n_before_del}->{n_after_del}')
-        # refill for the many-node screenshot
+        # refill for the many-node screenshot on a tall pot
+        page.evaluate('(s) => __sim.setCustom(s)', tall_cylinder())
+        page.wait_for_timeout(200)
         while page.evaluate('() => __sim.getCustom().nodes.length < 2 + __sim.maxMid'):
             if not page.evaluate('() => __sim.addNode()'):
                 break
-        page.evaluate('() => __sim.setCustom({ spout: "teapot", handle: "none" })')
         page.wait_for_timeout(300)
         page.evaluate('__sim.setView(28, 16)')
         page.wait_for_timeout(200)
@@ -425,15 +409,15 @@ def run():
         # outline tap adds a node
         spec_m = m.evaluate('() => __sim.getCustom()')
         n_m0 = len(spec_m['nodes'])
-        y_m = longest_gap_y(spec_m)
-        pt_m = m.evaluate('(y) => __sim.profileScreen(y)', y_m)
-        cdp_tap(m, pt_m)
-        m.wait_for_timeout(400)
-        n_m1 = m.evaluate('() => __sim.getCustom().nodes.length')
-        print(f'mobile outline tap nodes {n_m0} -> {n_m1}')
-        if n_m1 != n_m0 + 1:
-            m.evaluate('(y) => __sim.addNodeAt(y)', y_m)
+        pt_m = m.evaluate('() => __sim.outlineTapTarget()')
+        print('mobile outline tap target', pt_m)
+        if not pt_m:
+            failed.append('mobile outline tap target missing')
+        else:
+            cdp_tap(m, pt_m)
+            m.wait_for_timeout(400)
             n_m1 = m.evaluate('() => __sim.getCustom().nodes.length')
+            print(f'mobile outline tap nodes {n_m0} -> {n_m1}')
             if n_m1 != n_m0 + 1:
                 failed.append(f'mobile outline tap did not add a node {n_m0}->{n_m1}')
         # many nodes on a tall pot
