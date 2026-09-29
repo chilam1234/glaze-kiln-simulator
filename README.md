@@ -10,8 +10,9 @@ No build step. Serve the folder and open it:
 
 three.js r165 is vendored in `vendor/` and loaded through the import map in index.html, so it works offline.
 
-- `js/pot.js`: lathe profiles (cylinder, bowl, vase, plate, chawan, bottle, jar, mug) with foot ring, rim, inner wall and throwing ridges; arc-length UVs;
+- `js/pot.js`: lathe profiles (cylinder, bowl, vase, plate, chawan, bottle, jar, mug, plus a Custom silhouette) with foot ring, rim, inner wall and throwing ridges; optional C-loop / side handle and pouring-lip / teapot spout; arc-length UVs;
   per-row curvature -> edge (convex) and cavity (concave) maps, gravity direction/steepness, wax line.
+- `js/shape.js`: custom profile (quadratic nodes + bulges), extract-from-preset, capacity in ml.
 - `js/glazes.js`: glaze library (raw colour, fired colour/opacity/roughness stops by thickness, fluidity, crackle,
   speckle) and pair interactions (overlap colour and halo line).
 - `js/sim.js`: UV-space state (a thickness map and a paint-order stamp map for each glaze), brush/pour, raw composition,
@@ -27,13 +28,9 @@ Each Fire uses a new random seed, so the drip layout changes every time. To pin 
 `tests/verify_drips.py` makes `shots/drips-*.png`.
 `tests/verify_drips2.py` (same flow, seed 20260926) makes `shots/drips2-*.png`: rounded bead tips, soft drip edges, old-vs-new close-up, plus tenmoku-over-shino and ash-over-cobalt checks.
 
-## Shapes
-There are eight shapes: cylinder, bowl, vase, plate (the glaze pools in the well), chawan (tall bare foot, out-of-round
-body, wavy rim), bottle (long narrow neck), jar (broad shoulder, short collar) and mug. The mug handle is a tube mesh
-with its own rows of the same glaze texture, split from the body by a few rows that never take glaze. Brush, pour/dip,
-firing and drips all work on it. `tests/verify_shapes.py` fires each shape with a different glaze combination and
-writes `shots/shape-<name>.png` plus `shots/shapes-grid.png`. It paints the mug handle with a real mouse drag.
-Set `GLAZE_URL=file:///.../dist/glaze-kiln.html` to run the same check against the single file.
+## Custom shapes
+A ninth **Custom** option in the Pot panel copies the current preset's outline (foot → optional middle nodes → rim, quadratic bulges between them) so you can drag it. Red nodes and grey bulge handles sit on the pot while you edit (desktop always; on a phone, switch the touch bar to **Shape**). `+` / `−` add or remove up to five middle nodes. Sliders set height, rim, foot and wall in centimetres; live capacity is millilitres of the inner volume. Handles: none / C-loop / side. Spouts: none / pouring lip / teapot. Optional **Cross-section drawing**. Glaze already on the pot is remapped by height when the silhouette changes. Shape editing is locked after firing until **Unfire** (same as painting). Brush, pour, drips and cone 6 / cone 10 all run on the new wall, handle and spout.
+`tests/verify_custom.py` sets a custom bowl with handle and spout, paints, fires both cones, checks a phone Shape-mode drag, and writes `shots/custom-*.png`.
 
 ## Single-file build (open by double-click, no server, no internet)
     python3 tests/build_single.py      # -> dist/glaze-kiln.html

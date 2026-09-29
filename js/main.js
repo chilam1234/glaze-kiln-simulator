@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, TEX_W, TEX_H } from './pot.js';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { makePotMaterial } from './material.js';
@@ -71,7 +71,8 @@ const material = makePotMaterial(tex);
 let pot = null, mesh = null, pickMesh = null;
 
 // ---------- UI state ----------
-const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false, cone: 6 };
+const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false, touchMode: 'paint', cone: 6, section: false };
+let customSpec = null;
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
@@ -83,9 +84,8 @@ function frameCamera() {
   camera.position.set(0, target.y + Math.sin(el) * dist, Math.cos(el) * dist);
   controls.target.copy(target); controls.update();
 }
-function setShape(kind) {
-  ui.shape = kind;
-  pot = buildPot(kind);
+function applyBuiltPot(built, opts = {}) {
+  pot = built;
   if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); }
   mesh = new THREE.Mesh(pot.geometry, material);
   mesh.castShadow = true; mesh.receiveShadow = true;
@@ -93,10 +93,52 @@ function setShape(kind) {
   pickMesh = new THREE.Mesh(pot.pickGeometry, new THREE.MeshBasicMaterial());
   pickMesh.updateMatrixWorld();
   scene.add(mesh);
-  state.setPot(pot);
-  ui.simState = 'raw';
-  frameCamera(); refreshUI();
+  state.setPot(pot, opts);
+  if (!opts.preview) ui.simState = 'raw';
+  if (!opts.preview && !opts.noFrame) frameCamera();
+  refreshUI();
+  rebuildGizmos();
+}
+function setShape(kind) {
+  if (ui.simState === 'firing') return;
+  if (kind === 'custom') {
+    if (ui.shape === 'custom' && customSpec) { refreshUI(); return; }
+    const src = ui.shape === 'custom' ? (customSpec?.source || 'vase') : ui.shape;
+    customSpec = extractCustom(src);
+    customSpec.source = src;
+    ui.shape = 'custom';
+    applyBuiltPot(buildCustomPot(customSpec), { remap: true });
+    if (isMobileLayout()) {
+      ui.touchMode = 'shape'; ui.touchOrbit = false; syncOrbitTouches();
+      document.body.classList.add('sheet-collapsed');
+      refreshUI();
+    }
+    const d = dimsCm(customSpec);
+    setStatus(`Custom ${src} — drag the red nodes. ${Math.round(d.ml)} ml.`);
+    return;
+  }
+  customSpec = null;
+  ui.shape = kind;
+  applyBuiltPot(buildPot(kind));
   setStatus(`${kind[0].toUpperCase() + kind.slice(1)} ready. Paint some glaze, then fire.`);
+}
+function shapeLocked() { return ui.simState === 'fired' || ui.simState === 'firing'; }
+function showingGizmos() {
+  if (ui.shape !== 'custom' || !customSpec || shapeLocked()) return false;
+  if (isMobileLayout()) return ui.touchMode === 'shape';
+  return true;
+}
+function rebuildCustom(opts = {}) {
+  if (!customSpec) return;
+  if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return; }
+  applyBuiltPot(buildCustomPot(customSpec, { preview: !!opts.preview }), {
+    preview: !!opts.preview,
+    skipNoise: !!opts.preview,
+    keepGlaze: !!opts.preview,
+    skipCompose: !!opts.preview,
+    remap: !opts.preview,
+    noFrame: true,
+  });
 }
 
 // ---------- input: brush + pour on the mesh ----------
@@ -109,6 +151,119 @@ function hitAt(clientX, clientY) {
   const h = raycaster.intersectObject(pickMesh, false)[0];
   return h || null;
 }
+const gizmoGroup = new THREE.Group(); gizmoGroup.renderOrder = 20; scene.add(gizmoGroup);
+const gizmoMats = {
+  node: new THREE.MeshBasicMaterial({ color: 0xe74c3c, depthTest: false, transparent: true, opacity: 0.95 }),
+  bulge: new THREE.MeshBasicMaterial({ color: 0xcfd4da, depthTest: false, transparent: true, opacity: 0.95 }),
+  hit: new THREE.MeshBasicMaterial({ visible: false, depthTest: false }),
+};
+const profileLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x333333, depthTest: false, transparent: true, opacity: 0.7 }));
+profileLine.renderOrder = 19; gizmoGroup.add(profileLine);
+
+function gizmoAz() {
+  // Keep the profile gizmos on the screen-right silhouette (lathe profile).
+  return Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z) + Math.PI / 2;
+}
+function clearGizmoMeshes() {
+  const keep = new Set([profileLine]);
+  for (let i = gizmoGroup.children.length - 1; i >= 0; i--) {
+    const ch = gizmoGroup.children[i];
+    if (keep.has(ch)) continue;
+    gizmoGroup.remove(ch);
+    if (ch.geometry) ch.geometry.dispose();
+  }
+}
+function rebuildGizmos() {
+  clearGizmoMeshes();
+  if (!showingGizmos() || !customSpec) { gizmoGroup.visible = false; return; }
+  gizmoGroup.visible = true;
+  const visR = isMobileLayout() ? 0.085 : 0.055;
+  const hitR = isMobileLayout() ? 0.16 : 0.09;
+  const bulgeR = visR * 0.72;
+  const addBall = (kind, index, r, y, rad) => {
+    const vis = new THREE.Mesh(new THREE.SphereGeometry(kind === 'node' ? visR : bulgeR, 16, 12), kind === 'node' ? gizmoMats.node : gizmoMats.bulge);
+    vis.userData = { kind, index, r, y, vis: true };
+    vis.renderOrder = 21;
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(hitR, 10, 8), gizmoMats.hit);
+    hit.userData = { kind, index, r, y };
+    hit.renderOrder = 21;
+    gizmoGroup.add(vis); gizmoGroup.add(hit);
+  };
+  customSpec.nodes.forEach((n, i) => addBall('node', i, n.r, n.y));
+  customSpec.bulges.forEach((b, i) => addBall('bulge', i, b.r, b.y));
+  const segs = [];
+  const Nsamp = 24;
+  for (let i = 0; i < customSpec.nodes.length - 1; i++) {
+    const p0 = customSpec.nodes[i], c = customSpec.bulges[i], p1 = customSpec.nodes[i + 1];
+    for (let k = 0; k <= Nsamp; k++) {
+      const t = k / Nsamp, u = 1 - t;
+      segs.push(new THREE.Vector3(u * u * p0.r + 2 * u * t * c.r + t * t * p1.r, u * u * p0.y + 2 * u * t * c.y + t * t * p1.y, 0));
+    }
+  }
+  profileLine.geometry.dispose();
+  profileLine.geometry = new THREE.BufferGeometry().setFromPoints(segs);
+  profileLine.userData.pts = segs.map(p => ({ r: p.x, y: p.y }));
+  placeGizmos();
+}
+function placeGizmos() {
+  if (!gizmoGroup.visible) return;
+  const az = gizmoAz(), s = Math.sin(az), c = Math.cos(az);
+  gizmoGroup.children.forEach(obj => {
+    const d = obj.userData;
+    if (d && d.r != null) obj.position.set(d.r * s, d.y, d.r * c);
+  });
+  const pts = profileLine.userData.pts;
+  if (pts) {
+    const arr = profileLine.geometry.attributes.position.array;
+    for (let i = 0; i < pts.length; i++) {
+      arr[i * 3] = pts[i].r * s; arr[i * 3 + 1] = pts[i].y; arr[i * 3 + 2] = pts[i].r * c;
+    }
+    profileLine.geometry.attributes.position.needsUpdate = true;
+  }
+}
+function gizmoScreenOf(kind, index) {
+  if (!customSpec) return null;
+  const list = kind === 'bulge' ? customSpec.bulges : customSpec.nodes;
+  if (index < 0) index = list.length + index;
+  const p = list[index]; if (!p) return null;
+  const az = gizmoAz();
+  camera.updateMatrixWorld();
+  const v = new THREE.Vector3(p.r * Math.sin(az), p.y, p.r * Math.cos(az)).project(camera);
+  const rect = renderer.domElement.getBoundingClientRect();
+  return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height };
+}
+function hitGizmo(clientX, clientY) {
+  if (!showingGizmos()) return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  camera.updateMatrixWorld(); raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(gizmoGroup.children, false).filter(h => h.object.userData && h.object.userData.kind);
+  if (hits[0]) return hits[0].object.userData;
+  // fat-finger: nearest gizmo in screen space
+  const lim = isMobileLayout() ? 40 : 18;
+  let best = null, bd = lim;
+  for (const obj of gizmoGroup.children) {
+    const d = obj.userData; if (!d || !d.kind || d.vis) continue;
+    const sp = obj.position.clone().project(camera);
+    const sx = rect.left + (sp.x + 1) / 2 * rect.width, sy = rect.top + (1 - sp.y) / 2 * rect.height;
+    const dist = Math.hypot(sx - clientX, sy - clientY);
+    if (dist < bd) { bd = dist; best = d; }
+  }
+  return best;
+}
+function profilePlaneHit(clientX, clientY) {
+  const az = gizmoAz();
+  const dir = new THREE.Vector3(Math.sin(az), 0, Math.cos(az));
+  const n = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, new THREE.Vector3());
+  const rect = renderer.domElement.getBoundingClientRect();
+  ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  camera.updateMatrixWorld(); raycaster.setFromCamera(ndc, camera);
+  const pt = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(plane, pt)) return null;
+  const r = pt.x * Math.sin(az) + pt.z * Math.cos(az);
+  return { r: Math.max(0.08, r), y: pt.y };
+}
 const cursor = new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 48), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.55, depthTest: false }));
 cursor.renderOrder = 10; cursor.visible = false; scene.add(cursor);
 const pourRing = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 96 }, (_, i) => new THREE.Vector3(Math.cos(i / 96 * Math.PI * 2), 0, Math.sin(i / 96 * Math.PI * 2)))), new THREE.LineBasicMaterial({ color: 0xc0391b }));
@@ -119,16 +274,21 @@ function showPourRing(hFrac) {
 }
 
 let painting = false, lastScreen = null, paintPointer = null;
+let shaping = false, shapePointer = null, shapeTarget = null;
 const touchPointers = new Set();
 function dabFromHit(h) { state.dab(h.uv.x, h.uv.y, ui.size, GLAZE_INDEX[ui.glaze], thickness[ui.glaze]); }
 function syncOrbitTouches() {
   // Paint: one-finger ignored by OrbitControls (we paint). Two-finger dolly+rotate.
+  // Shape: one-finger ignored (we drag nodes). Two-finger dolly+rotate.
   // Orbit: one-finger rotate, two-finger dolly+rotate.
-  controls.touches.ONE = ui.touchOrbit ? THREE.TOUCH.ROTATE : -1;
+  controls.touches.ONE = ui.touchMode === 'orbit' ? THREE.TOUCH.ROTATE : -1;
   controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE;
 }
 function canPaintTouch() {
-  return !ui.touchOrbit && touchPointers.size < 2;
+  return ui.touchMode === 'paint' && touchPointers.size < 2;
+}
+function canShapeTouch() {
+  return ui.touchMode === 'shape' && touchPointers.size < 2;
 }
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -139,10 +299,22 @@ syncOrbitTouches();
 renderer.domElement.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') touchPointers.add(e.pointerId);
   if (e.pointerType === 'touch' && touchPointers.size >= 2) {
-    painting = false; lastScreen = null; paintPointer = null; controls.enabled = true;
+    painting = false; lastScreen = null; paintPointer = null;
+    if (shaping) { shaping = false; shapePointer = null; rebuildCustom(); }
+    controls.enabled = true;
     return;
   }
   if (e.button !== 0 || ui.simState !== 'raw' || !mesh) return;
+  if (showingGizmos() && (e.pointerType !== 'touch' || canShapeTouch())) {
+    const g = hitGizmo(e.clientX, e.clientY);
+    if (g) {
+      e.preventDefault();
+      if (e.pointerType !== 'touch') controls.enabled = false;
+      shaping = true; shapePointer = e.pointerId; shapeTarget = { kind: g.kind, index: g.index };
+      renderer.domElement.setPointerCapture(e.pointerId);
+      return;
+    }
+  }
   if (e.pointerType === 'touch' && !canPaintTouch()) return;
   const h = hitAt(e.clientX, e.clientY);
   if (!h) return;
@@ -160,17 +332,26 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 }, { capture: true });
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (!mesh) return;
+  if (shaping && shapePointer === e.pointerId) {
+    if (e.pointerType === 'touch' && touchPointers.size >= 2) { shaping = false; return; }
+    const hit = profilePlaneHit(e.clientX, e.clientY);
+    if (hit && shapeTarget && customSpec) {
+      if (shapeTarget.kind === 'node') constrainNode(customSpec, shapeTarget.index, hit.r, hit.y);
+      else constrainBulge(customSpec, shapeTarget.index, hit.r, hit.y);
+      rebuildCustom({ preview: true });
+    }
+    return;
+  }
   const h = hitAt(e.clientX, e.clientY);
-  if (e.pointerType !== 'touch' && h && ui.tool === 'brush' && ui.simState === 'raw') {
+  if (e.pointerType !== 'touch' && h && ui.tool === 'brush' && ui.simState === 'raw' && !showingGizmos()) {
     cursor.visible = true; cursor.position.copy(h.point);
     const n = h.face.normal.clone().transformDirection(mesh.matrixWorld);
     cursor.lookAt(h.point.clone().add(n)); cursor.scale.setScalar(ui.size);
-  } else if (e.pointerType === 'touch') cursor.visible = false;
+  } else if (e.pointerType === 'touch' || showingGizmos()) cursor.visible = false;
   else if (!h) cursor.visible = false;
   if (ui.tool === 'pour' && h && ui.simState === 'raw') showPourRing(h.point.y / pot.height);
   if (!painting || (paintPointer !== null && e.pointerId !== paintPointer)) return;
   if (e.pointerType === 'touch' && touchPointers.size >= 2) { painting = false; return; }
-  // interpolate in screen space so fast drags still produce continuous strokes
   const [lx, ly] = lastScreen, dx = e.clientX - lx, dy = e.clientY - ly;
   const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 6));
   for (let s = 1; s <= steps; s++) {
@@ -181,6 +362,10 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 });
 const endStroke = (e) => {
   if (e && e.pointerType === 'touch') touchPointers.delete(e.pointerId);
+  if (shaping && (!e || e.pointerId === shapePointer || !touchPointers.size)) {
+    shaping = false; shapePointer = null; shapeTarget = null;
+    rebuildCustom();
+  }
   if (e && paintPointer !== null && e.pointerId !== paintPointer && touchPointers.size) return;
   painting = false; paintPointer = null; controls.enabled = true;
 };
@@ -263,10 +448,114 @@ document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => b.onclick = ()
   refreshUI();
 });
 document.querySelectorAll('#touchMode button').forEach(b => b.onclick = () => {
-  ui.touchOrbit = b.dataset.mode === 'orbit';
+  ui.touchMode = b.dataset.mode;
+  ui.touchOrbit = ui.touchMode === 'orbit';
+  if (isMobileLayout() && ui.touchMode === 'shape') document.body.classList.add('sheet-collapsed');
   syncOrbitTouches();
   refreshUI();
+  rebuildGizmos();
 });
+
+function fmtCm(v) { return v.toFixed(1) + ' cm'; }
+function syncCustomSliders() {
+  if (!customSpec) return;
+  const d = dimsCm(customSpec);
+  $('customH').value = d.height; $('customHOut').textContent = fmtCm(d.height);
+  $('customRim').value = d.rim; $('customRimOut').textContent = fmtCm(d.rim);
+  $('customFoot').value = d.foot; $('customFootOut').textContent = fmtCm(d.foot);
+  $('customWall').value = d.wall; $('customWallOut').textContent = d.wall.toFixed(2) + ' cm';
+  $('capOut').textContent = Math.round(d.ml);
+  $('hPos').value = customSpec.handlePos; $('hPosOut').textContent = fmtCm(customSpec.handlePos * UNIT_CM);
+  $('hH').value = customSpec.handleHeight; $('hHOut').textContent = fmtCm(customSpec.handleHeight * UNIT_CM);
+  $('hW').value = customSpec.handleWidth; $('hWOut').textContent = fmtCm(customSpec.handleWidth * UNIT_CM);
+  $('hT').value = customSpec.handleThick; $('hTOut').textContent = fmtCm(customSpec.handleThick * UNIT_CM);
+  const hud = $('dimHud');
+  hud.hidden = false;
+  hud.textContent = `${fmtCm(d.height)} · rim Ø ${fmtCm(d.rim)} · ${Math.round(d.ml)} ml`;
+}
+function onCustomChange() {
+  if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); refreshUI(); return; }
+  rebuildCustom();
+  const d = dimsCm(customSpec);
+  setStatus(`Custom shape · ${Math.round(d.ml)} ml.`);
+}
+$('nodeAdd').onclick = () => { if (!customSpec || shapeLocked()) return; if (customSpec.nodes.length >= 2 + MAX_MID) return; addNode(customSpec); onCustomChange(); };
+$('nodeSub').onclick = () => { if (!customSpec || shapeLocked()) return; removeNode(customSpec); onCustomChange(); };
+$('customH').oninput = (e) => { if (!customSpec) return; setHeight(customSpec, +e.target.value / UNIT_CM); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('customH').onchange = () => onCustomChange();
+$('customRim').oninput = (e) => { if (!customSpec) return; setRimR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('customRim').onchange = () => onCustomChange();
+$('customFoot').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('customFoot').onchange = () => onCustomChange();
+$('customWall').oninput = (e) => { if (!customSpec) return; customSpec.wall = Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)); rebuildCustom({ preview: true }); syncCustomSliders(); };
+$('customWall').onchange = () => onCustomChange();
+['hPos', 'hH', 'hW', 'hT'].forEach(id => {
+  $(id).oninput = () => {
+    if (!customSpec) return;
+    customSpec.handlePos = +$('hPos').value;
+    customSpec.handleHeight = +$('hH').value;
+    customSpec.handleWidth = +$('hW').value;
+    customSpec.handleThick = +$('hT').value;
+    rebuildCustom({ preview: true }); syncCustomSliders();
+  };
+  $(id).onchange = () => onCustomChange();
+});
+document.querySelectorAll('#handleType button').forEach(b => b.onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  customSpec.handle = b.dataset.handle;
+  onCustomChange();
+});
+document.querySelectorAll('#spoutType button').forEach(b => b.onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  customSpec.spout = b.dataset.spout;
+  onCustomChange();
+});
+$('sectionView').onchange = (e) => { ui.section = e.target.checked; refreshUI(); drawSection(); };
+$('sectionClose').onclick = () => { ui.section = false; refreshUI(); };
+
+function drawSection() {
+  const ov = $('sectionOverlay'), cv = $('sectionCanvas');
+  ov.hidden = !ui.section || !pot;
+  if (ov.hidden) return;
+  const w = ov.clientWidth, h = ov.clientHeight;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.max(2, Math.floor(w * dpr)); cv.height = Math.max(2, Math.floor(h * dpr));
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+  const R = pot.rows, pts = [];
+  for (let k = 0; k < R.potRows; k++) pts.push([R.r[k], R.y[k]]);
+  let maxR = 0.2, maxY = 0.2;
+  for (const p of pts) { if (p[0] > maxR) maxR = p[0]; if (p[1] > maxY) maxY = p[1]; }
+  const pad = 48, scale = Math.min((w - pad * 2) / (maxR * 2.35), (h - pad * 2 - 36) / (maxY * 1.18));
+  const cx = w / 2, by = h - pad - 18;
+  const X = r => cx + r * scale, Y = y => by - y * scale;
+  ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
+  for (const p of pts) ctx.lineTo(X(p[0]), Y(p[1]));
+  ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
+  ctx.fillStyle = '#eef1f4'; ctx.fill(); ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
+  for (const p of pts) ctx.lineTo(X(-p[0]), Y(p[1]));
+  ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(cx, Y(0)); ctx.lineTo(cx, Y(maxY)); ctx.strokeStyle = '#999'; ctx.stroke(); ctx.setLineDash([]);
+  const d = customSpec ? dimsCm(customSpec) : { height: pot.height * UNIT_CM, rim: 0, foot: 0, wall: 0, ml: 0 };
+  ctx.fillStyle = '#074684'; ctx.font = '600 13px sans-serif';
+  ctx.fillText('POT SECTION', pad, 22);
+  ctx.fillStyle = '#525d7d'; ctx.font = '12px sans-serif';
+  ctx.fillText(`H ${d.height.toFixed(1)} cm   rim Ø ${d.rim.toFixed(1)} cm   foot Ø ${d.foot.toFixed(1)} cm   ${Math.round(d.ml)} ml`, pad, 40);
+  if (customSpec) {
+    ctx.strokeStyle = '#c0391b'; ctx.lineWidth = 1;
+    const dim = (x0, y0, x1, y1, label) => {
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.fillStyle = '#333'; ctx.font = '11px sans-serif'; ctx.fillText(label, (x0 + x1) / 2 + 4, (y0 + y1) / 2 - 4);
+    };
+    const rim = customSpec.nodes[customSpec.nodes.length - 1];
+    dim(X(-rim.r), Y(rim.y) - 12, X(rim.r), Y(rim.y) - 12, `Ø ${d.rim.toFixed(1)} cm`);
+    dim(X(maxR) + 16, Y(0), X(maxR) + 16, Y(customSpec.nodes[customSpec.nodes.length - 1].y), `${d.height.toFixed(1)} cm`);
+  }
+}
 
 function applyLayout() {
   const mobile = isMobileLayout();
@@ -307,7 +596,27 @@ function refreshUI() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   });
-  document.querySelectorAll('#touchMode button').forEach(b => b.classList.toggle('active', (b.dataset.mode === 'orbit') === ui.touchOrbit));
+  document.querySelectorAll('#touchMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === ui.touchMode));
+  const customOn = ui.shape === 'custom' && customSpec;
+  $('customOpts').hidden = !customOn;
+  $('dimHud').hidden = !customOn;
+  const lock = shapeLocked();
+  ['nodeAdd', 'nodeSub', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
+  document.querySelectorAll('#handleType button').forEach(b => {
+    b.classList.toggle('active', customOn && customSpec.handle === b.dataset.handle);
+    b.disabled = lock || !customOn;
+  });
+  document.querySelectorAll('#spoutType button').forEach(b => {
+    b.classList.toggle('active', customOn && customSpec.spout === b.dataset.spout);
+    b.disabled = lock || !customOn;
+  });
+  $('handleOpts').hidden = !customOn || customSpec.handle === 'none';
+  $('sectionView').checked = ui.section;
+  $('sectionOverlay').hidden = !ui.section;
+  if (customOn) syncCustomSliders();
+  else $('dimHud').hidden = true;
+  if (ui.section) drawSection();
+  if (gizmoGroup) { const want = showingGizmos(); if (gizmoGroup.visible !== want) rebuildGizmos(); else placeGizmos(); }
   if (pot) showPourRing(ui.pourH);
 }
 
@@ -337,6 +646,7 @@ function loop() {
   scene.environmentIntensity = 0.85 * (1 - 0.75 * g);
   scene.background.copy(BG).lerp(BG_KILN, g);
   controls.update();
+  placeGizmos();
   renderer.render(scene, camera);
 }
 resize();
@@ -382,6 +692,9 @@ window.__sim = {
   setCone(n) { ui.cone = n === 10 ? 10 : 6; setFireCone(ui.cone); refreshUI(); },
   get cone() { return ui.cone; },
   get touchOrbit() { return ui.touchOrbit; },
+  get touchMode() { return ui.touchMode; },
+  setTouchOrbit(on) { ui.touchMode = on ? 'orbit' : 'paint'; ui.touchOrbit = !!on; syncOrbitTouches(); refreshUI(); rebuildGizmos(); },
+  setTouchMode(m) { ui.touchMode = m === 'orbit' ? 'orbit' : m === 'shape' ? 'shape' : 'paint'; ui.touchOrbit = ui.touchMode === 'orbit'; syncOrbitTouches(); refreshUI(); rebuildGizmos(); },
   get sheet() { return ui.sheet; },
   get mobile() { return isMobileLayout(); },
   get pixelRatio() { return renderer.getPixelRatio(); },
@@ -396,8 +709,9 @@ window.__sim = {
   },
   // screen coordinates of the handle surface (mug) at curve fraction t, on the side facing the camera; null if no handle
   handleScreenAt(t) {
-    const F = pot.rows.frame; if (!F) return null;
-    const k = Math.min(TEX_H - 1, F.from + Math.floor(t * (TEX_H - F.from))), r = pot.rows.r[k];
+    const R = pot.rows, F = R.frame; if (!F || R.handleFrom >= TEX_H) return null;
+    const from = R.handleFrom, to = R.handleTo ?? TEX_H;
+    const k = Math.min(to - 1, from + Math.floor(Math.min(1, Math.max(0, t)) * Math.max(1, to - from))), r = pot.rows.r[k];
     const c = new THREE.Vector3(F.cx[k], F.cy[k], F.cz[k]), toCam = camera.position.clone().sub(c).normalize();
     const n = new THREE.Vector3(F.nx[k], F.ny[k], F.nz[k]), b = new THREE.Vector3(F.bx[k], F.by[k], F.bz[k]);
     const dir = n.multiplyScalar(n.dot(toCam)).add(b.multiplyScalar(b.dot(toCam))).normalize();
@@ -405,11 +719,29 @@ window.__sim = {
     const p = c.add(dir.multiplyScalar(r * 0.8)).project(camera), rect = renderer.domElement.getBoundingClientRect();
     return { x: rect.left + (p.x + 1) / 2 * rect.width, y: rect.top + (1 - p.y) / 2 * rect.height };
   },
-  // mean thickness per glaze on the handle rows only (mug); null if no handle
   handleStats() {
-    const F = pot.rows.frame; if (!F) return null; const W = TEX_W, from = F.from * W, n = TEX_H * W - from;
-    return Object.fromEntries(GLAZES.map((g, gi) => { let s = 0; const a = (state.fired || state.thick)[gi]; if (a) for (let i = from; i < TEX_H * W; i++) s += a[i]; return [g.id, +(s / n).toFixed(4)]; }));
+    const R = pot.rows; if (R.handleFrom >= TEX_H) return null;
+    const W = TEX_W, from = R.handleFrom * W, to = (R.handleTo ?? TEX_H) * W, n = Math.max(1, to - from);
+    return Object.fromEntries(GLAZES.map((g, gi) => { let s = 0; const a = (state.fired || state.thick)[gi]; if (a) for (let i = from; i < to; i++) s += a[i]; return [g.id, +(s / n).toFixed(4)]; }));
   },
+  getCustom() { return customSpec ? cloneSpec(customSpec) : null; },
+  setCustom(partial = {}) {
+    if (ui.shape !== 'custom') setShape('custom');
+    if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return false; }
+    if (partial.nodes) customSpec.nodes = partial.nodes.map(p => ({ r: p.r, y: p.y }));
+    if (partial.bulges) customSpec.bulges = partial.bulges.map(p => ({ r: p.r, y: p.y }));
+    for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'spout', 'spoutSize', 'source']) {
+      if (partial[k] !== undefined) customSpec[k] = partial[k];
+    }
+    rebuildCustom();
+    return true;
+  },
+  addNode() { if (!customSpec || shapeLocked()) return false; addNode(customSpec); rebuildCustom(); return true; },
+  removeNode() { if (!customSpec || shapeLocked()) return false; removeNode(customSpec); rebuildCustom(); return true; },
+  getDims() { return customSpec ? dimsCm(customSpec) : null; },
+  gizmoScreen(kind, index) { return gizmoScreenOf(kind, index); },
+  setSection(on) { ui.section = !!on; refreshUI(); drawSection(); },
+  get section() { return ui.section; },
   stats: () => state.stats(),
   setSeed(n) { state.fixedSeed = (n === null || n === undefined) ? undefined : n >>> 0; },   // stable seed for tests; null = random per firing
   get seed() { return state.seed; },
