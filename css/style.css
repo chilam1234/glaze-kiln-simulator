@@ -66,6 +66,10 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 #shapes button { padding: 6px 2px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #shapes button[data-shape="custom"] { grid-column: 1 / -1; }
 #customOpts h3 { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--amaco-navy); margin: 10px 0 4px; }
+.shape-subtabs { display: none; }
+.shape-group { display: block; }
+.long-label { display: inline; }
+#customOpts[hidden], #handleOpts[hidden], #spoutOpts[hidden] { display: none !important; }
 .node-row { align-items: center; flex-wrap: wrap; }
 .node-row span { flex: 1; font-size: 12px; color: var(--text-muted); }
 .node-row span b { color: var(--amaco-navy); }
@@ -193,14 +197,36 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   #touchMode { flex: 0 1 auto; width: auto; margin: 0; min-width: 0; }
   #touchMode button { min-width: 44px; padding: 8px 5px; font-size: 13px; }
-  #customOpts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
-  #customOpts .hint, #customOpts .dims, #customOpts .node-row,
-  #customOpts h3, #handleType, #spoutType, #handleOpts, #spoutOpts, #customOpts .check { grid-column: 1 / -1; }
-  #handleOpts, #spoutOpts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
-  #handleOpts .hint, #spoutOpts .hint { grid-column: 1 / -1; }
+  #customOpts[hidden] { display: none !important; }
+  #customOpts { display: flex; flex-direction: column; gap: 0; min-height: 0; }
+  .shape-subtabs {
+    display: flex;
+    gap: 6px;
+    margin: 0 0 8px;
+    flex: none;
+  }
+  .shape-subtabs button {
+    flex: 1;
+    min-height: 40px;
+    font-size: 15px;
+    padding: 8px 6px;
+  }
+  #customOpts .shape-group { display: none; }
+  #customOpts .shape-group.active { display: block; }
+  #handleOpts, #spoutOpts { display: block; }
+  #handleOpts[hidden], #spoutOpts[hidden] { display: none !important; }
   #customOpts .node-row button { min-height: 44px; min-width: 44px; flex-basis: 44px; font-size: 22px; }
   #customOpts .node-row button.node-del { flex-basis: auto; min-width: 72px; font-size: 14px; padding: 8px 12px; }
-  #customOpts h3 { margin: 8px 0 4px; }
+  #customOpts h3 { margin: 4px 0 6px; }
+  #customHint { display: none; }
+  body[data-shape-group="handle"] #shapes,
+  body[data-shape-group="spout"] #shapes,
+  body[data-shape-group="handle"] .sheet > [data-sheet="pot"] > h2,
+  body[data-shape-group="spout"] .sheet > [data-sheet="pot"] > h2 { display: none; }
+  body[data-shape-group="handle"] #customOpts h3,
+  body[data-shape-group="spout"] #customOpts h3 { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .handle-place { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #handleOppHint { display: none; }
   #dimHud { top: 8px; right: 8px; font-size: 11px; padding: 5px 8px; max-width: 70%; }
   #shapeTools { bottom: 10px; left: 8px; }
   #sectionOverlay { inset: 4% 4% 8px 4%; }
@@ -214,6 +240,86 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     flex: 0 1 auto;
     min-height: 0;
     padding-right: 2px;
+  }
+  /* Pot sheet in Shape/custom: sliders take most of the drawer. */
+  body:not(.sheet-collapsed)[data-sheet="pot"] #panel {
+    max-height: 68vh;
+    max-height: 68dvh;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #view {
+    min-height: 30vh;
+    min-height: 30dvh;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .sheet {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 160px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider {
+    font-size: 16px;
+    margin: 14px 0 8px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider output {
+    font-size: 17px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider input {
+    min-height: 44px;
+  }
+  body:not(.sheet-collapsed) .actions {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 4px;
+    padding-top: 4px;
+  }
+  body:not(.sheet-collapsed) .cone-fire {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 4px;
+    flex: 1.4;
+    min-width: 0;
+    margin: 0;
+  }
+  body:not(.sheet-collapsed) #cone { margin: 0; flex: 0 1 auto; display: flex; gap: 4px; }
+  body:not(.sheet-collapsed) #cone button {
+    min-height: 32px;
+    padding: 3px 5px;
+    font-size: 11px;
+    flex-direction: column;
+    gap: 0;
+  }
+  body:not(.sheet-collapsed) #cone button small { display: none; }
+  body:not(.sheet-collapsed) button.fire {
+    flex: 1;
+    width: auto;
+    min-height: 32px;
+    margin: 0;
+    font-size: 13px;
+    padding: 4px 8px;
+    letter-spacing: .05em;
+    box-shadow: none;
+  }
+  body:not(.sheet-collapsed) .actions .row,
+  body:not(.sheet-collapsed) .aux-row {
+    flex: 0.9;
+    margin: 0;
+    min-width: 0;
+  }
+  body:not(.sheet-collapsed) .actions .row button {
+    min-height: 32px;
+    font-size: 11px;
+    padding: 3px 5px;
+  }
+  body:not(.sheet-collapsed) .long-label { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .credit { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #status {
+    font-size: 10px;
+    min-height: 0;
+    margin: 2px 0 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   body.sheet-collapsed .sheet { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] .sheet > :not([data-sheet="pot"]) { display: none; }
@@ -270,7 +376,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   .mobile-bar { grid-area: bar; margin: 0; flex-wrap: nowrap; }
   .mobile-tabs button, #touchMode button { min-height: 44px; }
-  .actions { display: contents; }
+  .actions, body:not(.sheet-collapsed) .actions { display: contents; }
   .cone-fire {
     grid-area: fire;
     display: flex;
@@ -324,6 +430,10 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     box-shadow: 0 -8px 24px rgba(0, 18, 36, .18);
     padding: 8px 12px;
     z-index: 6;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .sheet {
+    max-height: min(78vh, 360px);
+    min-height: 180px;
   }
   body.sheet-collapsed .sheet { display: none; }
 }

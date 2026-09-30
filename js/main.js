@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip } from './pot.js';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { makePotMaterial } from './material.js';
@@ -71,19 +71,24 @@ const material = makePotMaterial(tex);
 let pot = null, mesh = null, pickMesh = null;
 
 // ---------- UI state ----------
-const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false, touchMode: 'paint', cone: 6, section: false };
+const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false, touchMode: 'paint', cone: 6, section: false, shapeGroup: 'pot' };
 let customSpec = null;
 let selectedNode = -1;
+let selectedHandle = -1;
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
   pot.geometry.computeBoundingBox();
-  const bb = pot.geometry.boundingBox, h = pot.height, rMax = Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z);
-  const target = new THREE.Vector3(0, h * 0.46, 0);
-  const dist = Math.max(h, rMax * 2.1) * 2.5;
+  const bb = pot.geometry.boundingBox;
+  const h = Math.max(pot.height, bb.max.y);
+  const rMax = Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z, 0.4);
+  const spanY = Math.max(0.2, bb.max.y - bb.min.y);
+  const target = new THREE.Vector3(0, (bb.min.y + bb.max.y) * 0.42, 0);
+  const dist = Math.max(h, rMax * 2.1, spanY * 1.2) * 2.7;
   const el = pot.elev ?? (pot.kind === 'bowl' ? 0.62 : 0.3);
   camera.position.set(0, target.y + Math.sin(el) * dist, Math.cos(el) * dist);
   controls.target.copy(target); controls.update();
+  ensureGripsInView();
 }
 function applyBuiltPot(built, opts = {}) {
   pot = built;
@@ -113,6 +118,8 @@ function setShape(kind) {
     customSpec = extractCustom(src);
     customSpec.source = src;
     selectedNode = customSpec.nodes.length - 1;
+    selectedHandle = -1;
+    ui.shapeGroup = 'pot';
     ui.shape = 'custom';
     applyBuiltPot(buildCustomPot(customSpec), { remap: true });
     if (isMobileLayout()) {
@@ -126,6 +133,7 @@ function setShape(kind) {
   }
   customSpec = null;
   selectedNode = -1;
+  selectedHandle = -1;
   ui.shape = kind;
   applyBuiltPot(buildPot(kind));
   setStatus(`${kind[0].toUpperCase() + kind.slice(1)} ready. Paint some glaze, then fire.`);
@@ -148,6 +156,7 @@ function rebuildCustom(opts = {}) {
     noFrame: true,
     skipUi: !!opts.skipUi,
   });
+  if (!opts.preview) ensureGripsInView();
 }
 
 // ---------- input: brush + pour on the mesh ----------
@@ -165,19 +174,22 @@ const gizmoMats = {
   node: new THREE.MeshBasicMaterial({ color: 0xe74c3c, depthTest: false, transparent: true, opacity: 0.95 }),
   sel: new THREE.MeshBasicMaterial({ color: 0xf5c518, depthTest: false, transparent: true, opacity: 0.98 }),
   bulge: new THREE.MeshBasicMaterial({ color: 0xcfd4da, depthTest: false, transparent: true, opacity: 0.95 }),
+  handle: new THREE.MeshBasicMaterial({ color: 0x1f8a4c, depthTest: false, transparent: true, opacity: 0.96 }),
   spoutRoot: new THREE.MeshBasicMaterial({ color: 0x1b82f7, depthTest: false, transparent: true, opacity: 0.97 }),
   spoutTip: new THREE.MeshBasicMaterial({ color: 0xffbd2e, depthTest: false, transparent: true, opacity: 0.98 }),
   hit: new THREE.MeshBasicMaterial({ visible: false, depthTest: false }),
 };
 const profileLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x333333, depthTest: false, transparent: true, opacity: 0.7 }));
 profileLine.renderOrder = 19; gizmoGroup.add(profileLine);
+const handleLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x0b6e4f, depthTest: false, transparent: true, opacity: 0.85 }));
+handleLine.renderOrder = 19; handleLine.visible = false; gizmoGroup.add(handleLine);
 
 function gizmoAz() {
   // Keep the profile gizmos on the screen-right silhouette (lathe profile).
   return Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z) + Math.PI / 2;
 }
 function clearGizmoMeshes() {
-  const keep = new Set([profileLine]);
+  const keep = new Set([profileLine, handleLine]);
   for (let i = gizmoGroup.children.length - 1; i >= 0; i--) {
     const ch = gizmoGroup.children[i];
     if (keep.has(ch)) continue;
@@ -197,15 +209,15 @@ function rebuildGizmos() {
   const hitR = Math.min(mobile ? 0.16 : 0.09, Math.max(mobile ? 0.11 : 0.07, spacing * 0.48));
   const bulgeR = visR * 0.72;
   const addBall = (kind, index, r, y, world) => {
-    const selected = kind === 'node' && index === selectedNode;
+    const selected = (kind === 'node' && index === selectedNode) || (kind === 'handle' && index === selectedHandle);
     const mat = selected ? gizmoMats.sel : gizmoMats[kind] || gizmoMats.node;
-    const size = kind === 'spoutTip' ? visR * 1.12 : kind === 'spoutRoot' ? visR * 1.05 : kind === 'node' ? visR : bulgeR;
+    const size = kind === 'spoutTip' ? visR * 1.12 : kind === 'spoutRoot' ? visR * 1.05 : kind === 'handle' ? visR * 1.04 : kind === 'node' ? visR : bulgeR;
     const vis = new THREE.Mesh(new THREE.SphereGeometry(size, 16, 12), mat);
     vis.userData = { kind, index, r, y, vis: true };
     if (world) { vis.userData.world = true; vis.userData.x = world.x; vis.userData.y = world.y; vis.userData.z = world.z; }
     vis.renderOrder = 21;
     if (selected) vis.scale.setScalar(1.28);
-    const hit = new THREE.Mesh(new THREE.SphereGeometry(kind.startsWith('spout') ? hitR * 1.15 : hitR, 10, 8), gizmoMats.hit);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry((kind.startsWith('spout') || kind === 'handle') ? hitR * 1.15 : hitR, 10, 8), gizmoMats.hit);
     hit.userData = { kind, index, r, y };
     if (world) { hit.userData.world = true; hit.userData.x = world.x; hit.userData.y = world.y; hit.userData.z = world.z; }
     hit.renderOrder = 21;
@@ -213,6 +225,9 @@ function rebuildGizmos() {
   };
   customSpec.nodes.forEach((nd, i) => addBall('node', i, nd.r, nd.y));
   customSpec.bulges.forEach((b, i) => addBall('bulge', i, b.r, b.y));
+  if (customSpec.handle === 'c' || customSpec.handle === 'side') {
+    handleWorldNodes(customSpec).forEach(hn => addBall('handle', hn.index, hn.r, hn.y, hn.world));
+  }
   if (customSpec.spout === 'teapot') {
     const sw = spoutWorld(customSpec);
     addBall('spoutRoot', 0, sw.r0, sw.y0, sw.root);
@@ -222,6 +237,11 @@ function rebuildGizmos() {
   profileLine.geometry.dispose();
   profileLine.geometry = new THREE.BufferGeometry().setFromPoints(segs.map(p => new THREE.Vector3(p.r, p.y, 0)));
   profileLine.userData.pts = segs;
+  const hSegs = sampleHandleWorld(customSpec, 40);
+  handleLine.visible = hSegs.length > 1;
+  handleLine.geometry.dispose();
+  handleLine.geometry = new THREE.BufferGeometry().setFromPoints(hSegs.length ? hSegs : [new THREE.Vector3()]);
+  handleLine.userData.pts = hSegs;
   placeGizmos();
 }
 function sampleProfilePts() {
@@ -240,6 +260,7 @@ function sampleProfilePts() {
 function updateGizmoDataFromSpec() {
   if (!customSpec || !gizmoGroup.visible) return;
   const sw = customSpec.spout === 'teapot' ? spoutWorld(customSpec) : null;
+  const hns = (customSpec.handle === 'c' || customSpec.handle === 'side') ? handleWorldNodes(customSpec) : [];
   gizmoGroup.children.forEach(obj => {
     const d = obj.userData;
     if (!d || d.kind == null) return;
@@ -247,6 +268,9 @@ function updateGizmoDataFromSpec() {
       d.r = sw.r0; d.y = sw.y0; d.x = sw.root.x; d.z = sw.root.z; d.world = true;
     } else if (d.kind === 'spoutTip' && sw) {
       d.r = sw.r0 + sw.out; d.y = sw.y0 + sw.lift; d.x = sw.tip.x; d.z = sw.tip.z; d.world = true;
+    } else if (d.kind === 'handle') {
+      const p = hns[d.index];
+      if (p) { d.r = p.r; d.y = p.y; d.x = p.x; d.z = p.z; d.world = true; }
     } else if (d.kind === 'bulge' || d.kind === 'node') {
       const list = d.kind === 'bulge' ? customSpec.bulges : customSpec.nodes;
       const p = list[d.index];
@@ -261,6 +285,72 @@ function updateGizmoDataFromSpec() {
     profileLine.geometry.dispose();
     profileLine.geometry = new THREE.BufferGeometry().setFromPoints(segs.map(p => new THREE.Vector3(p.r, p.y, 0)));
     profileLine.userData.pts = segs;
+  }
+  const hSegs = sampleHandleWorld(customSpec, 40);
+  handleLine.visible = hSegs.length > 1;
+  handleLine.userData.pts = hSegs;
+  if (hSegs.length) {
+    if (!handleLine.geometry.attributes.position || handleLine.geometry.attributes.position.count !== hSegs.length) {
+      handleLine.geometry.dispose();
+      handleLine.geometry = new THREE.BufferGeometry().setFromPoints(hSegs);
+    }
+  }
+}
+function clampMeshToView(obj, padPx) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) return;
+  camera.updateMatrixWorld();
+  const v = obj.position.clone().project(camera);
+  if (v.z > 1) return;
+  const sx = (v.x + 1) / 2 * rect.width, sy = (1 - v.y) / 2 * rect.height;
+  const cx = Math.min(rect.width - padPx, Math.max(padPx, sx));
+  const cy = Math.min(rect.height - padPx, Math.max(padPx, sy));
+  if (Math.abs(cx - sx) < 0.5 && Math.abs(cy - sy) < 0.5) return;
+  const ndc = new THREE.Vector3((cx / rect.width) * 2 - 1, -(cy / rect.height) * 2 + 1, v.z);
+  ndc.unproject(camera);
+  obj.position.copy(ndc);
+}
+function gripWorldPoints() {
+  const pts = [];
+  if (!customSpec) return pts;
+  if (customSpec.spout === 'teapot') {
+    const sw = spoutWorld(customSpec);
+    pts.push(sw.root, sw.tip);
+  }
+  if (customSpec.handle === 'c' || customSpec.handle === 'side') {
+    for (const hn of handleWorldNodes(customSpec)) pts.push(hn.world);
+  }
+  return pts;
+}
+function ensureGripsInView() {
+  if (!showingGizmos() || !customSpec || !controls) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) return;
+  const pad = Math.min(isMobileLayout() ? 48 : 32, rect.height * 0.12);
+  for (let iter = 0; iter < 8; iter++) {
+    camera.updateMatrixWorld();
+    const worlds = gripWorldPoints();
+    if (!worlds.length) return;
+    let need = false, topHeavy = false;
+    for (const p of worlds) {
+      const v = p.clone().project(camera);
+      const sx = rect.left + (v.x + 1) / 2 * rect.width;
+      const sy = rect.top + (1 - v.y) / 2 * rect.height;
+      if (v.z > 1 || sx < rect.left + pad || sx > rect.right - pad || sy < rect.top + pad || sy > rect.bottom - pad) {
+        need = true;
+        if (sy < rect.top + pad) topHeavy = true;
+      }
+    }
+    if (!need) return;
+    const t = controls.target;
+    const off = camera.position.clone().sub(t);
+    off.multiplyScalar(1.09);
+    if (topHeavy) {
+      t.y -= 0.04;
+      off.y = Math.max(off.y - 0.05, -Math.abs(off.x) * 0.2);
+    }
+    camera.position.copy(t).add(off);
+    controls.update();
   }
 }
 function placeGizmos() {
@@ -280,26 +370,56 @@ function placeGizmos() {
     }
     profileLine.geometry.attributes.position.needsUpdate = true;
   }
+  const hPts = handleLine.userData.pts;
+  if (hPts && hPts.length && handleLine.geometry.attributes.position) {
+    const arr = handleLine.geometry.attributes.position.array;
+    for (let i = 0; i < hPts.length; i++) {
+      arr[i * 3] = hPts[i].x; arr[i * 3 + 1] = hPts[i].y; arr[i * 3 + 2] = hPts[i].z;
+    }
+    handleLine.geometry.attributes.position.needsUpdate = true;
+  }
+  const pad = isMobileLayout() ? 40 : 26;
+  gizmoGroup.children.forEach(obj => {
+    const d = obj.userData;
+    if (!d || (d.kind !== 'spoutTip' && d.kind !== 'spoutRoot' && d.kind !== 'handle')) return;
+    clampMeshToView(obj, pad);
+  });
 }
 function gizmoScreenOf(kind, index) {
   if (!customSpec) return null;
+  camera.updateMatrixWorld();
+  const rect = renderer.domElement.getBoundingClientRect();
+  const toScreen = (p) => {
+    const v = p.clone().project(camera);
+    return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height };
+  };
+  // Prefer the placed (possibly view-clamped) mesh so tests and taps hit the visible grip.
+  for (const obj of gizmoGroup.children) {
+    const d = obj.userData;
+    if (!d || d.vis || d.kind !== kind) continue;
+    if (index != null && index >= 0 && d.index !== index) continue;
+    if (index < 0 && kind === 'node') {
+      const last = customSpec.nodes.length + index;
+      if (d.index !== last) continue;
+    }
+    return toScreen(obj.position);
+  }
   if (kind === 'spoutRoot' || kind === 'spoutTip') {
     if (customSpec.spout !== 'teapot') return null;
     const sw = spoutWorld(customSpec);
-    const p = kind === 'spoutRoot' ? sw.root : sw.tip;
-    camera.updateMatrixWorld();
-    const v = p.clone().project(camera);
-    const rect = renderer.domElement.getBoundingClientRect();
-    return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height };
+    return toScreen(kind === 'spoutRoot' ? sw.root : sw.tip);
+  }
+  if (kind === 'handle') {
+    const hns = handleWorldNodes(customSpec);
+    if (index < 0) index = hns.length + index;
+    const p = hns[index];
+    return p ? toScreen(p.world) : null;
   }
   const list = kind === 'bulge' ? customSpec.bulges : customSpec.nodes;
   if (index < 0) index = list.length + index;
   const p = list[index]; if (!p) return null;
   const az = gizmoAz();
-  camera.updateMatrixWorld();
-  const v = new THREE.Vector3(p.r * Math.sin(az), p.y, p.r * Math.cos(az)).project(camera);
-  const rect = renderer.domElement.getBoundingClientRect();
-  return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height };
+  return toScreen(new THREE.Vector3(p.r * Math.sin(az), p.y, p.r * Math.cos(az)));
 }
 function nearestGizmoScreen(clientX, clientY) {
   if (!showingGizmos()) return null;
@@ -311,7 +431,7 @@ function nearestGizmoScreen(clientX, clientY) {
     const sp = obj.position.clone().project(camera);
     const sx = rect.left + (sp.x + 1) / 2 * rect.width, sy = rect.top + (1 - sp.y) / 2 * rect.height;
     const dist = Math.hypot(sx - clientX, sy - clientY);
-    const prefer = d.kind === 'spoutRoot' || d.kind === 'spoutTip' ? dist - 7 : dist;
+    const prefer = (d.kind === 'spoutRoot' || d.kind === 'spoutTip' || d.kind === 'handle') ? dist - 7 : dist;
     if (prefer < bd) { bd = prefer; best = { kind: d.kind, index: d.index, dist }; }
   }
   return best;
@@ -337,9 +457,42 @@ function hitOutline(clientX, clientY) {
     v.set(p.r * s, p.y, p.r * c).project(camera);
     const sx = rect.left + (v.x + 1) / 2 * rect.width, sy = rect.top + (1 - v.y) / 2 * rect.height;
     const dist = Math.hypot(sx - clientX, sy - clientY);
-    if (dist < bd) { bd = dist; best = { r: p.r, y: p.y, dist }; }
+    if (dist < bd) { bd = dist; best = { kind: 'profile', r: p.r, y: p.y, dist }; }
   }
   return best;
+}
+function hitHandleOutline(clientX, clientY) {
+  if (!showingGizmos() || !customSpec) return null;
+  if (customSpec.handle !== 'c' && customSpec.handle !== 'side') return null;
+  const pts = handleLine.userData.pts;
+  if (!pts || !pts.length) return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  camera.updateMatrixWorld();
+  const lim = isMobileLayout() ? 36 : 18;
+  let best = null, bd = lim;
+  const v = new THREE.Vector3();
+  for (const p of pts) {
+    v.copy(p).project(camera);
+    const sx = rect.left + (v.x + 1) / 2 * rect.width, sy = rect.top + (1 - v.y) / 2 * rect.height;
+    const dist = Math.hypot(sx - clientX, sy - clientY);
+    if (dist < bd) {
+      const az = handleAzimuth(customSpec);
+      const r = p.x * Math.cos(az) + p.z * Math.sin(az);
+      bd = dist; best = { kind: 'handle', r, y: p.y, dist };
+    }
+  }
+  return best;
+}
+function handleDragHit(clientX, clientY, index) {
+  if (!customSpec) return null;
+  const hns = handleWorldNodes(customSpec);
+  const through = hns[index] ? hns[index].world : hns[0]?.world;
+  if (!through) return null;
+  const pt = facingHit(clientX, clientY, through);
+  if (!pt) return null;
+  const az = handleAzimuth(customSpec);
+  const radial = pt.x * Math.cos(az) + pt.z * Math.sin(az);
+  return { r: radial, y: pt.y };
 }
 function profilePlaneHit(clientX, clientY, az) {
   if (az == null) az = gizmoAz();
@@ -403,9 +556,10 @@ function queueShapePreview() {
 function flushShapePreview() {
   if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = 0; }
 }
-function tryAddAtHeight(y) {
+function tryAddAtHeight(y, kind, r) {
   if (!customSpec || shapeLocked()) return false;
   if (performance.now() - lastAddMs < 350) return false;
+  if (kind === 'handle') return insertHandleAt(r, y);
   return insertNodeAt(y);
 }
 function insertNodeAt(y) {
@@ -417,8 +571,25 @@ function insertNodeAt(y) {
   onCustomChange();
   return true;
 }
+function insertHandleAt(r, y) {
+  if (!customSpec || shapeLocked()) return false;
+  const idx = addHandleNodeAtPoint(customSpec, r, y);
+  if (idx < 0) return false;
+  selectedHandle = idx;
+  selectedNode = -1;
+  lastAddMs = performance.now();
+  onCustomChange();
+  return true;
+}
 function selectNode(i) {
   selectedNode = i;
+  selectedHandle = -1;
+  rebuildGizmos();
+  refreshUI();
+}
+function selectHandle(i) {
+  selectedHandle = i;
+  selectedNode = -1;
   rebuildGizmos();
   refreshUI();
 }
@@ -454,19 +625,22 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   if (showingGizmos() && (e.pointerType !== 'touch' || canShapeTouch())) {
     const g = hitGizmo(e.clientX, e.clientY);
     const outline = hitOutline(e.clientX, e.clientY);
-    const preferOutline = outline && (!g || outline.dist + 8 < g.dist);
+    const hOutline = hitHandleOutline(e.clientX, e.clientY);
+    const bestOutline = (!outline || (hOutline && hOutline.dist < outline.dist)) ? hOutline : outline;
+    const preferOutline = bestOutline && (!g || bestOutline.dist + 8 < g.dist);
     if (g && !preferOutline) {
       e.preventDefault();
       if (e.pointerType !== 'touch') controls.enabled = false;
       shaping = true; shapePointer = e.pointerId; shapeTarget = { kind: g.kind, index: g.index };
-      if (g.kind === 'node') { selectedNode = g.index; rebuildGizmos(); refreshUI(); }
+      if (g.kind === 'node') { selectedNode = g.index; selectedHandle = -1; rebuildGizmos(); refreshUI(); }
+      if (g.kind === 'handle') { selectedHandle = g.index; selectedNode = -1; rebuildGizmos(); refreshUI(); }
       renderer.domElement.setPointerCapture(e.pointerId);
       return;
     }
-    if (outline) {
+    if (bestOutline) {
       e.preventDefault();
       if (e.pointerType !== 'touch') controls.enabled = false;
-      pendingOutline = { pointer: e.pointerId, x: e.clientX, y: e.clientY, height: outline.y };
+      pendingOutline = { pointer: e.pointerId, x: e.clientX, y: e.clientY, height: bestOutline.y, r: bestOutline.r, kind: bestOutline.kind };
       renderer.domElement.setPointerCapture(e.pointerId);
       return;
     }
@@ -500,6 +674,9 @@ renderer.domElement.addEventListener('pointermove', (e) => {
           if (shapeTarget.kind === 'spoutRoot') setSpoutHeight(customSpec, sh.y);
           else setSpoutTip(customSpec, sh.r, sh.y);
         }
+      } else if (shapeTarget.kind === 'handle') {
+        const hh = handleDragHit(e.clientX, e.clientY, shapeTarget.index);
+        if (hh) constrainHandleNode(customSpec, shapeTarget.index, hh.r, hh.y);
       } else {
         const hit = profilePlaneHit(e.clientX, e.clientY);
         if (hit) {
@@ -536,10 +713,10 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 const endStroke = (e) => {
   if (e && e.pointerType === 'touch') touchPointers.delete(e.pointerId);
   if (pendingOutline && (!e || e.pointerId === pendingOutline.pointer || !touchPointers.size)) {
-    const addY = pendingOutline.height;
+    const addY = pendingOutline.height, addKind = pendingOutline.kind, addR = pendingOutline.r;
     pendingOutline = null;
     if (e && e.pointerType === 'touch' && touchPointers.size >= 1) { /* second finger: keep orbit */ }
-    else tryAddAtHeight(addY);
+    else tryAddAtHeight(addY, addKind, addR);
     controls.enabled = true;
   }
   if (shaping && (!e || e.pointerId === shapePointer || !touchPointers.size)) {
@@ -558,7 +735,9 @@ renderer.domElement.addEventListener('dblclick', (e) => {
   if (!showingGizmos() || shapeLocked()) return;
   if (hitGizmo(e.clientX, e.clientY)) return;
   const outline = hitOutline(e.clientX, e.clientY);
-  if (outline) { e.preventDefault(); tryAddAtHeight(outline.y); }
+  const hOutline = hitHandleOutline(e.clientX, e.clientY);
+  const best = (!outline || (hOutline && hOutline.dist < outline.dist)) ? hOutline : outline;
+  if (best) { e.preventDefault(); tryAddAtHeight(best.y, best.kind, best.r); }
 });
 
 view.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
@@ -655,6 +834,8 @@ function syncCustomSliders() {
   $('capOut').textContent = Math.round(d.ml);
   const mid = Math.max(0, customSpec.nodes.length - 2);
   const nc = $('nodeCount'); if (nc) nc.textContent = `${mid}/${MAX_MID}`;
+  const hn = ensureHandleNodes(customSpec);
+  const hc = $('hNodeCount'); if (hc) hc.textContent = hn ? `${hn.length}/${HANDLE_MAX}` : `0/${HANDLE_MAX}`;
   $('hPos').value = customSpec.handlePos; $('hPosOut').textContent = fmtCm(customSpec.handlePos * UNIT_CM);
   $('hH').value = customSpec.handleHeight; $('hHOut').textContent = fmtCm(customSpec.handleHeight * UNIT_CM);
   $('hW').value = customSpec.handleWidth; $('hWOut').textContent = fmtCm(customSpec.handleWidth * UNIT_CM);
@@ -698,20 +879,52 @@ $('nodeSub').onclick = () => {
   onCustomChange();
 };
 $('nodeDel').onclick = () => { deleteSelectedNode(); };
-$('nodeDelHud').onclick = () => $('nodeDel').onclick();
+$('nodeDelHud').onclick = () => { if (!deleteSelectedHandleNode()) deleteSelectedNode(); };
 function deleteSelectedNode() {
   if (!customSpec || shapeLocked()) return false;
+  if (selectedHandle >= 0) return deleteSelectedHandleNode();
   const removed = removeNode(customSpec, selectedNode);
   if (removed < 0) return false;
   selectedNode = customSpec.nodes.length > 2 ? Math.min(removed, customSpec.nodes.length - 2) : -1;
   onCustomChange();
   return true;
 }
+function deleteSelectedHandleNode() {
+  if (!customSpec || shapeLocked()) return false;
+  const nodes = customSpec.handleNodes;
+  if (!nodes || selectedHandle <= 0 || selectedHandle >= nodes.length - 1) return false;
+  const removed = removeHandleNodeSpec(customSpec, selectedHandle);
+  if (removed < 0) return false;
+  selectedHandle = nodes.length > HANDLE_MIN ? Math.min(removed, nodes.length - 2) : -1;
+  onCustomChange();
+  return true;
+}
+if ($('hNodeAdd')) $('hNodeAdd').onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  const idx = addHandleNodeSpec(customSpec);
+  if (idx < 0) return;
+  selectedHandle = idx; selectedNode = -1;
+  onCustomChange();
+};
+if ($('hNodeSub')) $('hNodeSub').onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  const removed = removeHandleNodeSpec(customSpec, selectedHandle);
+  if (removed < 0) return;
+  selectedHandle = customSpec.handleNodes && customSpec.handleNodes.length > HANDLE_MIN
+    ? Math.min(removed, customSpec.handleNodes.length - 2) : -1;
+  onCustomChange();
+};
+if ($('hNodeDel')) $('hNodeDel').onclick = () => { deleteSelectedHandleNode(); };
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Delete' && e.key !== 'Backspace') return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   if (!showingGizmos()) return;
+  if (selectedHandle > 0 && customSpec && customSpec.handleNodes && selectedHandle < customSpec.handleNodes.length - 1) {
+    e.preventDefault();
+    deleteSelectedHandleNode();
+    return;
+  }
   if (selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1) {
     e.preventDefault();
     deleteSelectedNode();
@@ -728,10 +941,9 @@ $('customWall').onchange = () => onCustomChange();
 ['hPos', 'hH', 'hW', 'hT'].forEach(id => {
   $(id).oninput = () => {
     if (!customSpec) return;
-    customSpec.handlePos = +$('hPos').value;
-    customSpec.handleHeight = +$('hH').value;
-    customSpec.handleWidth = +$('hW').value;
-    customSpec.handleThick = +$('hT').value;
+    if (id === 'hW') setHandleWidth(customSpec, +$('hW').value);
+    else if (id === 'hT') customSpec.handleThick = +$('hT').value;
+    else setHandlePlacement(customSpec, +$('hPos').value, +$('hH').value);
     rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
   };
   $(id).onchange = () => onCustomChange();
@@ -757,7 +969,15 @@ function readSpoutSliders() {
 document.querySelectorAll('#handleType button').forEach(b => b.onclick = () => {
   if (!customSpec || shapeLocked()) return;
   customSpec.handle = b.dataset.handle;
+  resetHandleNodes(customSpec);
+  selectedHandle = -1;
   onCustomChange();
+});
+document.querySelectorAll('#shapeSubtabs button').forEach(b => b.onclick = () => {
+  ui.shapeGroup = b.dataset.group;
+  refreshUI();
+  const sheet = $('sheet');
+  if (sheet) sheet.scrollTop = 0;
 });
 document.querySelectorAll('#spoutType button').forEach(b => b.onclick = () => {
   if (!customSpec || shapeLocked()) return;
@@ -815,6 +1035,7 @@ function applyLayout() {
   const mobile = isMobileLayout();
   document.body.classList.toggle('is-mobile', mobile);
   document.body.dataset.sheet = ui.sheet;
+  document.body.dataset.shapeGroup = ui.shapeGroup;
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
@@ -855,12 +1076,25 @@ function refreshUI() {
   $('customOpts').hidden = !customOn;
   $('dimHud').hidden = !customOn;
   const lock = shapeLocked();
-  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT', 'sH', 'sAz', 'sTilt', 'sLen', 'sMouth'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
-  const canDel = customOn && !lock && selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1;
-  if ($('nodeDel')) $('nodeDel').disabled = !canDel;
+  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'hNodeAdd', 'hNodeSub', 'hNodeDel', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT', 'sH', 'sAz', 'sTilt', 'sLen', 'sMouth'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
+  const hNodes = customOn && customSpec ? ensureHandleNodes(customSpec) : null;
+  const canDelPot = customOn && !lock && selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1;
+  const canDelHandle = customOn && !lock && hNodes && selectedHandle > 0 && selectedHandle < hNodes.length - 1;
+  const canDel = canDelPot || canDelHandle;
+  if ($('nodeDel')) $('nodeDel').disabled = !canDelPot;
+  if ($('hNodeDel')) $('hNodeDel').disabled = !canDelHandle;
   if ($('nodeDelHud')) $('nodeDelHud').disabled = !canDel;
   if ($('shapeTools')) $('shapeTools').hidden = !showingGizmos() || !canDel;
   if ($('nodeAdd') && customOn && customSpec) $('nodeAdd').disabled = lock || customSpec.nodes.length >= 2 + MAX_MID;
+  if ($('hNodeAdd')) $('hNodeAdd').disabled = lock || !customOn || !hNodes || hNodes.length >= HANDLE_MAX;
+  if ($('hNodeSub')) $('hNodeSub').disabled = lock || !customOn || !hNodes || hNodes.length <= HANDLE_MIN;
+  document.body.dataset.shapeGroup = ui.shapeGroup;
+  document.querySelectorAll('#shapeSubtabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.group === ui.shapeGroup);
+  });
+  document.querySelectorAll('#customOpts .shape-group').forEach(el => {
+    el.classList.toggle('active', el.dataset.group === ui.shapeGroup);
+  });
   document.querySelectorAll('#handleType button').forEach(b => {
     b.classList.toggle('active', customOn && customSpec.handle === b.dataset.handle);
     b.disabled = lock || !customOn;
@@ -882,7 +1116,10 @@ function refreshUI() {
   if (gizmoGroup) {
     const want = showingGizmos();
     const haveSpout = gizmoGroup.children.some(c => c.userData && c.userData.kind === 'spoutRoot');
-    if (gizmoGroup.visible !== want || !!haveSpout !== teapot) rebuildGizmos();
+    const handleCount = gizmoGroup.children.filter(c => c.userData && c.userData.kind === 'handle' && !c.userData.vis).length;
+    const wantHandleN = customOn && customSpec && (customSpec.handle === 'c' || customSpec.handle === 'side')
+      ? (ensureHandleNodes(customSpec) || []).length : 0;
+    if (gizmoGroup.visible !== want || !!haveSpout !== teapot || handleCount !== wantHandleN) rebuildGizmos();
     else placeGizmos();
   }
   if (pot) showPourRing(ui.pourH);
@@ -1001,6 +1238,8 @@ window.__sim = {
     for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'handleAz', 'spout', 'spoutSize', 'spoutY', 'spoutLen', 'spoutTilt', 'spoutMouth', 'spoutAz', 'source']) {
       if (partial[k] !== undefined) customSpec[k] = partial[k];
     }
+    if (partial.handleNodes) customSpec.handleNodes = partial.handleNodes.map(p => ({ r: p.r, y: p.y }));
+    else if (partial.handle !== undefined && partial.handleNodes === undefined) resetHandleNodes(customSpec);
     rebuildCustom();
     liveCustomStatus();
     return true;
@@ -1023,8 +1262,32 @@ window.__sim = {
     return true;
   },
   selectNode(i) { if (!customSpec) return false; selectNode(i); return true; },
+  selectHandle(i) { if (!customSpec) return false; selectHandle(i); return true; },
   get selectedNode() { return selectedNode; },
+  get selectedHandle() { return selectedHandle; },
   get maxMid() { return MAX_MID; },
+  get maxHandle() { return HANDLE_MAX; },
+  get minHandle() { return HANDLE_MIN; },
+  addHandleNode() {
+    if (!customSpec || shapeLocked()) return false;
+    const idx = addHandleNodeSpec(customSpec);
+    if (idx < 0) return false;
+    selectedHandle = idx; selectedNode = -1;
+    rebuildCustom();
+    return true;
+  },
+  addHandleNodeAt(r, y) { return insertHandleAt(r, y); },
+  removeHandleNode(i) {
+    if (!customSpec || shapeLocked()) return false;
+    const removed = removeHandleNodeSpec(customSpec, i != null ? i : selectedHandle);
+    if (removed < 0) return false;
+    selectedHandle = customSpec.handleNodes && customSpec.handleNodes.length > HANDLE_MIN
+      ? Math.min(removed, customSpec.handleNodes.length - 2) : -1;
+    rebuildCustom();
+    return true;
+  },
+  setShapeGroup(name) { ui.shapeGroup = name === 'handle' || name === 'spout' ? name : 'pot'; refreshUI(); },
+  get shapeGroup() { return ui.shapeGroup; },
   getLimits() { return { ...LIMITS, maxMid: MAX_MID }; },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
   gizmoScreen(kind, index) { return gizmoScreenOf(kind, index); },
@@ -1038,6 +1301,39 @@ window.__sim = {
     return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height, r };
   },
   outlineHit(x, y) { return hitOutline(x, y); },
+  handleOutlineHit(x, y) { return hitHandleOutline(x, y); },
+  handleOutlineTapTarget() {
+    if (!customSpec || (customSpec.handle !== 'c' && customSpec.handle !== 'side')) return null;
+    const pts = handleLine.userData.pts;
+    if (!pts || !pts.length) return null;
+    const rect = renderer.domElement.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    const az = handleAzimuth(customSpec);
+    let best = null, bestClear = -1;
+    const v = new THREE.Vector3();
+    for (const p of pts) {
+      v.copy(p).project(camera);
+      const sx = rect.left + (v.x + 1) / 2 * rect.width, sy = rect.top + (1 - v.y) / 2 * rect.height;
+      if (sx < rect.left + 8 || sx > rect.right - 8 || sy < rect.top + 8 || sy > rect.bottom - 8) continue;
+      const g = nearestGizmoScreen(sx, sy);
+      const clear = g ? g.dist : 80;
+      if (clear > bestClear) {
+        bestClear = clear;
+        best = { x: sx, y: sy, r: p.x * Math.cos(az) + p.z * Math.sin(az), height: p.y, clear };
+      }
+    }
+    return best;
+  },
+  gripInView(kind, index, pad = 24) {
+    const pt = gizmoScreenOf(kind, index);
+    if (!pt) return null;
+    const rect = renderer.domElement.getBoundingClientRect();
+    return {
+      x: pt.x, y: pt.y,
+      inside: pt.x >= rect.left + pad && pt.x <= rect.right - pad && pt.y >= rect.top + pad && pt.y <= rect.bottom - pad,
+      view: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, w: rect.width, h: rect.height },
+    };
+  },
   outlineTapTarget() {
     if (!customSpec) return null;
     const pts = profileLine.userData.pts;

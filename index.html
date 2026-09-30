@@ -43,56 +43,73 @@
         <button data-shape="custom" title="Tweak the current outline with draggable nodes">Custom</button>
       </div>
       <div id="customOpts" hidden>
-        <p class="hint" id="customHint">Drag the red nodes. Tap or double-click the outline to add a node; select a node, then Delete to remove it. Grey dots pull the wall bulge. Blue/yellow grips move the teapot spout.</p>
-        <div class="dims" id="capRow"><span>Capacity</span> <b id="capOut">—</b> ml</div>
-        <div class="row node-row">
-          <span>Profile nodes <b id="nodeCount">0/12</b></span>
-          <button type="button" id="nodeSub" title="Remove a middle node">−</button>
-          <button type="button" id="nodeAdd" title="Add a middle node">+</button>
-          <button type="button" id="nodeDel" class="node-del" title="Delete the selected middle node">Delete</button>
+        <p class="hint" id="customHint">Drag the red wall nodes or green handle nodes. Tap an outline to add a node; select one, then Delete to remove it. Grey dots pull the wall bulge. Blue/yellow grips move the teapot spout.</p>
+        <div class="shape-subtabs" id="shapeSubtabs" role="tablist" aria-label="Shape group">
+          <button type="button" data-group="pot">Pot</button>
+          <button type="button" data-group="handle">Handle</button>
+          <button type="button" data-group="spout">Spout</button>
         </div>
-        <label class="slider">Height <output id="customHOut"></output>
-          <input type="range" id="customH" min="4" max="36" step="0.1"></label>
-        <label class="slider">Rim Ø <output id="customRimOut"></output>
-          <input type="range" id="customRim" min="2.5" max="54" step="0.1"></label>
-        <label class="slider">Foot Ø <output id="customFootOut"></output>
-          <input type="range" id="customFoot" min="3" max="32" step="0.1"></label>
-        <label class="slider">Wall <output id="customWallOut"></output>
-          <input type="range" id="customWall" min="0.3" max="1.4" step="0.05"></label>
-        <h3>Handle</h3>
-        <div class="row seg" id="handleType">
-          <button type="button" data-handle="none">None</button>
-          <button type="button" data-handle="c">C-loop</button>
-          <button type="button" data-handle="side">Side</button>
+        <div class="shape-group active" data-group="pot">
+          <div class="dims" id="capRow"><span>Capacity</span> <b id="capOut">—</b> ml</div>
+          <div class="row node-row">
+            <span>Profile nodes <b id="nodeCount">0/12</b></span>
+            <button type="button" id="nodeSub" title="Remove a middle node">−</button>
+            <button type="button" id="nodeAdd" title="Add a middle node">+</button>
+            <button type="button" id="nodeDel" class="node-del" title="Delete the selected middle node">Delete</button>
+          </div>
+          <label class="slider">Height <output id="customHOut"></output>
+            <input type="range" id="customH" min="4" max="36" step="0.1"></label>
+          <label class="slider">Rim Ø <output id="customRimOut"></output>
+            <input type="range" id="customRim" min="2.5" max="54" step="0.1"></label>
+          <label class="slider">Foot Ø <output id="customFootOut"></output>
+            <input type="range" id="customFoot" min="3" max="32" step="0.1"></label>
+          <label class="slider">Wall <output id="customWallOut"></output>
+            <input type="range" id="customWall" min="0.3" max="1.4" step="0.05"></label>
         </div>
-        <div id="handleOpts">
-          <label class="slider">From rim <output id="hPosOut"></output>
-            <input type="range" id="hPos" min="0.04" max="0.6" step="0.01"></label>
-          <label class="slider">Loop height <output id="hHOut"></output>
-            <input type="range" id="hH" min="0.2" max="1.2" step="0.02"></label>
-          <label class="slider">Width <output id="hWOut"></output>
-            <input type="range" id="hW" min="0.16" max="0.9" step="0.02"></label>
-          <label class="slider">Thickness <output id="hTOut"></output>
-            <input type="range" id="hT" min="0.03" max="0.1" step="0.005"></label>
-          <p class="hint" id="handleOppHint">Stays opposite the spout.</p>
+        <div class="shape-group" data-group="handle">
+          <h3>Handle</h3>
+          <div class="row seg" id="handleType">
+            <button type="button" data-handle="none">None</button>
+            <button type="button" data-handle="c">C-loop</button>
+            <button type="button" data-handle="side">Side</button>
+          </div>
+          <div id="handleOpts">
+            <div class="row node-row" id="handleNodeRow">
+              <span>Handle nodes <b id="hNodeCount">0/6</b></span>
+              <button type="button" id="hNodeSub" title="Remove a handle node">−</button>
+              <button type="button" id="hNodeAdd" title="Add a handle node">+</button>
+              <button type="button" id="hNodeDel" class="node-del" title="Delete the selected handle node">Delete</button>
+            </div>
+            <label class="slider handle-place">From rim <output id="hPosOut"></output>
+              <input type="range" id="hPos" min="0.04" max="0.6" step="0.01"></label>
+            <label class="slider handle-place">Loop height <output id="hHOut"></output>
+              <input type="range" id="hH" min="0.2" max="1.2" step="0.02"></label>
+            <label class="slider handle-size">Width <output id="hWOut"></output>
+              <input type="range" id="hW" min="0.16" max="0.9" step="0.02"></label>
+            <label class="slider handle-size">Thickness <output id="hTOut"></output>
+              <input type="range" id="hT" min="0.03" max="0.1" step="0.005"></label>
+            <p class="hint" id="handleOppHint">Stays opposite the spout. Drag the green nodes to reshape the loop.</p>
+          </div>
         </div>
-        <h3>Spout</h3>
-        <div class="row seg" id="spoutType">
-          <button type="button" data-spout="none">None</button>
-          <button type="button" data-spout="lip">Pouring lip</button>
-          <button type="button" data-spout="teapot">Teapot</button>
-        </div>
-        <div id="spoutOpts" hidden>
-          <label class="slider" id="sHRow">Height <output id="sHOut"></output>
-            <input type="range" id="sH" min="0.14" max="0.88" step="0.01"></label>
-          <label class="slider">Around pot <output id="sAzOut"></output>
-            <input type="range" id="sAz" min="0" max="360" step="1"></label>
-          <label class="slider" id="sTiltRow">Tilt <output id="sTiltOut"></output>
-            <input type="range" id="sTilt" min="-40" max="65" step="1"></label>
-          <label class="slider" id="sLenRow">Length <output id="sLenOut"></output>
-            <input type="range" id="sLen" min="3" max="24" step="0.1"></label>
-          <label class="slider">Opening <output id="sMouthOut"></output>
-            <input type="range" id="sMouth" min="0.45" max="2.4" step="0.05"></label>
+        <div class="shape-group" data-group="spout">
+          <h3>Spout</h3>
+          <div class="row seg" id="spoutType">
+            <button type="button" data-spout="none">None</button>
+            <button type="button" data-spout="lip">Pouring lip</button>
+            <button type="button" data-spout="teapot">Teapot</button>
+          </div>
+          <div id="spoutOpts" hidden>
+            <label class="slider" id="sHRow">Height <output id="sHOut"></output>
+              <input type="range" id="sH" min="0.14" max="0.88" step="0.01"></label>
+            <label class="slider">Around pot <output id="sAzOut"></output>
+              <input type="range" id="sAz" min="0" max="360" step="1"></label>
+            <label class="slider" id="sTiltRow">Tilt <output id="sTiltOut"></output>
+              <input type="range" id="sTilt" min="-40" max="65" step="1"></label>
+            <label class="slider" id="sLenRow">Length <output id="sLenOut"></output>
+              <input type="range" id="sLen" min="3" max="24" step="0.1"></label>
+            <label class="slider">Opening <output id="sMouthOut"></output>
+              <input type="range" id="sMouth" min="0.45" max="2.4" step="0.05"></label>
+          </div>
         </div>
         <label class="check"><input type="checkbox" id="sectionView"> Cross-section drawing</label>
       </div>
@@ -138,8 +155,8 @@
       </div>
       <button id="fireBtn" class="fire">Fire kiln</button>
     </div>
-    <div class="row">
-      <button id="unfireBtn">Unfire / keep painting</button>
+    <div class="row aux-row">
+      <button id="unfireBtn">Unfire<span class="long-label"> / keep painting</span></button>
       <button id="clearBtn">Clear</button>
     </div>
   </section>

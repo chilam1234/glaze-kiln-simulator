@@ -43,6 +43,7 @@ export function cloneSpec(s) {
     handleWidth: s.handleWidth,
     handleThick: s.handleThick,
     handleAz: s.handleAz,
+    handleNodes: s.handleNodes ? s.handleNodes.map(p => ({ r: p.r, y: p.y })) : null,
     spout: s.spout,
     spoutSize: s.spoutSize,
     spoutY: s.spoutY,
@@ -298,45 +299,222 @@ export function spoutWorld(spec) {
   return { ...p, root, tip, buried };
 }
 
-function handleCurve(spec) {
+export const HANDLE_MIN = 3;
+export const HANDLE_MAX = 6;
+export const HANDLE_EMBED = 0.96;
+
+function handleAttachYs(spec) {
   const H = spec.nodes[spec.nodes.length - 1].y;
-  const pos = Math.max(0.04, spec.handlePos);
-  const hh = Math.max(0.18, spec.handleHeight);
-  const hw = Math.max(0.16, spec.handleWidth);
+  const pos = Math.max(0.04, spec.handlePos ?? 0.14);
+  const hh = Math.max(0.18, spec.handleHeight ?? 0.42);
   const topY = Math.min(H - 0.02, H - pos);
   const botY = Math.max(spec.nodes[0].y + 0.06, topY - hh);
+  return { H, topY, botY, hh, pos };
+}
+
+export function defaultHandleNodes(spec) {
+  const { topY, botY, hh } = handleAttachYs(spec);
+  const hw = Math.max(0.16, spec.handleWidth ?? 0.45);
   const rTop = radiusAt(spec, topY), rBot = radiusAt(spec, botY);
-  const thick = Math.max(0.03, spec.handleThick);
-  const az = handleAzimuth(spec);
-  const P = (r, y) => inPlane(r, y, az);
-  const binormal = planeBinormal(az);
-  if (spec.handle === 'c') {
-    return {
-      curve: new THREE.CubicBezierCurve3(
-        P(rTop * 0.96, topY),
-        P(rTop + hw, topY + hh * 0.06),
-        P(rBot + hw * 0.95, botY - hh * 0.03),
-        P(rBot * 0.96, botY)
-      ),
-      radius: thick,
-      flat: 0.7,
-      binormal,
-    };
+  if (spec.handle === 'side') {
+    const midY = (topY + botY) / 2;
+    const rMid = radiusAt(spec, midY);
+    const span = Math.max(0.1, (topY - botY) * 0.42);
+    return [
+      { r: rMid * HANDLE_EMBED, y: midY + span },
+      { r: rMid + hw * 0.9, y: midY + span * 0.55 },
+      { r: rMid + hw * 1.05, y: midY - span * 0.35 },
+      { r: rMid * HANDLE_EMBED, y: midY - span * 0.12 },
+    ];
   }
-  const midY = (topY + botY) / 2;
-  const rMid = radiusAt(spec, midY);
-  const span = Math.max(0.1, (topY - botY) * 0.42);
+  return [
+    { r: rTop * HANDLE_EMBED, y: topY },
+    { r: rTop + hw, y: topY + hh * 0.06 },
+    { r: rBot + hw * 0.95, y: botY - hh * 0.03 },
+    { r: rBot * HANDLE_EMBED, y: botY },
+  ];
+}
+
+export function snapHandleEnds(spec) {
+  const nodes = spec.handleNodes;
+  if (!nodes || nodes.length < 2) return;
+  const H = spec.nodes[spec.nodes.length - 1].y;
+  const yLo = spec.nodes[0].y + 0.05;
+  const yHi = H - 0.015;
+  nodes[0].y = clamp(nodes[0].y, yLo, yHi);
+  nodes[nodes.length - 1].y = clamp(nodes[nodes.length - 1].y, yLo, yHi);
+  if (nodes[0].y < nodes[nodes.length - 1].y + 0.08) {
+    // keep a usable span if both ends were clamped together
+    if (nodes[0].y < (yLo + yHi) * 0.5) nodes[0].y = Math.min(yHi, nodes[nodes.length - 1].y + 0.12);
+    else nodes[nodes.length - 1].y = Math.max(yLo, nodes[0].y - 0.12);
+  }
+  nodes[0].r = radiusAt(spec, nodes[0].y) * HANDLE_EMBED;
+  nodes[nodes.length - 1].r = radiusAt(spec, nodes[nodes.length - 1].y) * HANDLE_EMBED;
+}
+
+export function ensureHandleNodes(spec) {
+  if (spec.handle !== 'c' && spec.handle !== 'side') {
+    spec.handleNodes = null;
+    return null;
+  }
+  if (!spec.handleNodes || spec.handleNodes.length < HANDLE_MIN) {
+    spec.handleNodes = defaultHandleNodes(spec);
+  }
+  if (spec.handleNodes.length > HANDLE_MAX) spec.handleNodes.length = HANDLE_MAX;
+  snapHandleEnds(spec);
+  return spec.handleNodes;
+}
+
+export function resetHandleNodes(spec) {
+  spec.handleNodes = (spec.handle === 'c' || spec.handle === 'side') ? defaultHandleNodes(spec) : null;
+  if (spec.handleNodes) snapHandleEnds(spec);
+  return spec.handleNodes;
+}
+
+function handleNodeOut(spec, n) {
+  return n.r - radiusAt(spec, n.y);
+}
+
+function syncHandleSlidersFromNodes(spec) {
+  const nodes = spec.handleNodes;
+  if (!nodes || nodes.length < 2) return;
+  const H = spec.nodes[spec.nodes.length - 1].y;
+  spec.handlePos = clamp(H - nodes[0].y, 0.04, 0.6);
+  spec.handleHeight = clamp(Math.abs(nodes[0].y - nodes[nodes.length - 1].y), 0.2, 1.2);
+  let maxOut = 0;
+  for (let i = 1; i < nodes.length - 1; i++) maxOut = Math.max(maxOut, handleNodeOut(spec, nodes[i]));
+  if (maxOut > 0) spec.handleWidth = clamp(maxOut, 0.16, 0.9);
+}
+
+export function setHandleWidth(spec, w) {
+  w = clamp(w, 0.16, 0.9);
+  const nodes = ensureHandleNodes(spec);
+  if (!nodes) { spec.handleWidth = w; return; }
+  let maxOut = 0;
+  for (let i = 1; i < nodes.length - 1; i++) maxOut = Math.max(maxOut, handleNodeOut(spec, nodes[i]));
+  const s = w / Math.max(0.08, maxOut);
+  for (let i = 1; i < nodes.length - 1; i++) {
+    const wall = radiusAt(spec, nodes[i].y);
+    nodes[i].r = wall + Math.max(0.08, handleNodeOut(spec, nodes[i]) * s);
+  }
+  spec.handleWidth = w;
+}
+
+export function setHandlePlacement(spec, pos, hh) {
+  const nodes = ensureHandleNodes(spec);
+  pos = clamp(pos, 0.04, 0.6);
+  hh = clamp(hh, 0.2, 1.2);
+  spec.handlePos = pos;
+  spec.handleHeight = hh;
+  if (!nodes) return;
+  const { topY, botY } = handleAttachYs(spec);
+  const oldTop = nodes[0].y, oldBot = nodes[nodes.length - 1].y;
+  const span0 = oldTop - oldBot || 1;
+  const span1 = topY - botY;
+  for (const n of nodes) {
+    const t = (oldTop - n.y) / span0;
+    n.y = topY - t * span1;
+  }
+  snapHandleEnds(spec);
+}
+
+export function constrainHandleNode(spec, i, r, y) {
+  const nodes = ensureHandleNodes(spec);
+  if (!nodes || i < 0 || i >= nodes.length) return;
+  const H = spec.nodes[spec.nodes.length - 1].y;
+  const yLo = spec.nodes[0].y + 0.04, yHi = H - 0.015;
+  y = clamp(y, yLo, yHi);
+  if (i === 0 || i === nodes.length - 1) {
+    nodes[i].y = y;
+    snapHandleEnds(spec);
+    syncHandleSlidersFromNodes(spec);
+    return;
+  }
+  const wall = radiusAt(spec, y);
+  nodes[i].r = clamp(r, wall + 0.07, wall + 1.65);
+  nodes[i].y = y;
+  syncHandleSlidersFromNodes(spec);
+}
+
+export function addHandleNode(spec) {
+  const nodes = ensureHandleNodes(spec);
+  if (!nodes || nodes.length >= HANDLE_MAX) return -1;
+  let best = 1, bestL = -1;
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const L = Math.hypot(nodes[i + 1].r - nodes[i].r, nodes[i + 1].y - nodes[i].y);
+    if (L > bestL) { bestL = L; best = i; }
+  }
+  const a = nodes[best], b = nodes[best + 1];
+  nodes.splice(best + 1, 0, { r: (a.r + b.r) * 0.5, y: (a.y + b.y) * 0.5 });
+  return best + 1;
+}
+
+export function addHandleNodeAtPoint(spec, r, y) {
+  const nodes = ensureHandleNodes(spec);
+  if (!nodes || nodes.length >= HANDLE_MAX) return -1;
+  let bestI = 1, bestD = 1e9, bestT = 0.5;
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const a = nodes[i], b = nodes[i + 1];
+    const dx = b.r - a.r, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1;
+    const t = clamp(((r - a.r) * dx + (y - a.y) * dy) / L2, 0, 1);
+    const pr = a.r + dx * t, py = a.y + dy * t;
+    const d = Math.hypot(pr - r, py - y);
+    if (d < bestD) { bestD = d; bestI = i + 1; bestT = t; }
+  }
+  if (bestT < 0.12 || bestT > 0.88) return -1;
+  const a = nodes[bestI - 1], b = nodes[bestI];
+  const nr = a.r + (b.r - a.r) * bestT, ny = a.y + (b.y - a.y) * bestT;
+  for (const n of nodes) {
+    if (Math.hypot(n.r - nr, n.y - ny) < 0.055) return -1;
+  }
+  nodes.splice(bestI, 0, { r: nr, y: ny });
+  return bestI;
+}
+
+export function removeHandleNode(spec, index) {
+  const nodes = spec.handleNodes;
+  if (!nodes || nodes.length <= HANDLE_MIN) return -1;
+  let best = index;
+  if (best == null || best <= 0 || best >= nodes.length - 1) {
+    best = Math.floor(nodes.length / 2);
+  }
+  if (best <= 0 || best >= nodes.length - 1) return -1;
+  nodes.splice(best, 1);
+  snapHandleEnds(spec);
+  return best;
+}
+
+export function handleWorldNodes(spec) {
+  const nodes = ensureHandleNodes(spec);
+  if (!nodes) return [];
+  const az = handleAzimuth(spec);
+  return nodes.map((n, i) => {
+    const p = inPlane(n.r, n.y, az);
+    return { r: n.r, y: n.y, index: i, x: p.x, z: p.z, world: p };
+  });
+}
+
+function handleCurve(spec) {
+  const nodes = ensureHandleNodes(spec);
+  const az = handleAzimuth(spec);
+  const thick = Math.max(0.03, spec.handleThick);
+  const binormal = planeBinormal(az);
+  if (!nodes) return null;
+  const pts = nodes.map(n => inPlane(n.r, n.y, az));
   return {
-    curve: new THREE.CubicBezierCurve3(
-      P(rMid * 0.96, midY + span),
-      P(rMid + hw * 0.9, midY + span * 0.55),
-      P(rMid + hw * 1.05, midY - span * 0.35),
-      P(rMid * 0.98, midY - span * 0.12)
-    ),
-    radius: thick * 0.92,
-    flat: 0.85,
+    curve: new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.3),
+    radius: spec.handle === 'side' ? thick * 0.92 : thick,
+    flat: spec.handle === 'side' ? 0.85 : 0.7,
     binormal,
   };
+}
+
+export function sampleHandleWorld(spec, n = 36) {
+  const hd = handleCurve(spec);
+  if (!hd) return [];
+  const out = [];
+  for (let i = 0; i <= n; i++) out.push(hd.curve.getPointAt(i / n));
+  return out;
 }
 
 function spoutCurve(spec) {
@@ -495,6 +673,7 @@ export function extractCustom(path, meta) {
     handleWidth: mug ? 0.5 : 0.45,
     handleThick: 0.055,
     handleAz: mug ? 0 : undefined,
+    handleNodes: null,
     spout: 'none',
     spoutSize: 1,
     spoutY: 0.5,
