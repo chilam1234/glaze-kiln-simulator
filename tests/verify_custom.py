@@ -30,9 +30,11 @@ def start_server():
     return httpd, f'http://127.0.0.1:{httpd.server_address[1]}/'
 
 
-def save(page, name, full=True):
+def save(page, name, full=True, viewport=False):
     dest = os.path.join(OUT, name)
-    if full:
+    if viewport:
+        page.screenshot(path=dest, full_page=False)
+    elif full:
         page.screenshot(path=dest, full_page=True)
     else:
         page.locator('#view').screenshot(path=dest)
@@ -645,13 +647,13 @@ def run():
             failed.append('mobile Handle tab should hide the shape grid so sliders fit')
         if not drawer.get('widthVisible') or not drawer.get('thickVisible'):
             failed.append(f'mobile Width/Thickness sliders not fully visible {drawer}')
-        save(m, 'custom-mobile-sliders.png')
-        save(m, 'custom-mobile-firebar.png')
-        save(m, 'custom-mobile-handle-tab.png')
+        save(m, 'custom-mobile-sliders.png', viewport=True)
+        save(m, 'custom-mobile-firebar.png', viewport=True)
+        save(m, 'custom-mobile-handle-tab.png', viewport=True)
 
         m.evaluate('__sim.setShapeGroup("pot")')
         m.wait_for_timeout(200)
-        save(m, 'custom-mobile-pot-tab.png')
+        save(m, 'custom-mobile-pot-tab.png', viewport=True)
 
         # Spout tab: every teapot slider must sit in the viewport or in a sheet
         # scrollport that stays above the compact fire bar (iPhone 13 ~390x664).
@@ -721,7 +723,7 @@ def run():
         buried = [s for s in spout_ui['sliders'] if not s['reachable']]
         if buried:
             failed.append(f'mobile Spout sliders not reachable above fire bar: {buried}')
-        save(m, 'custom-mobile-spout-tab.png')
+        save(m, 'custom-mobile-spout-tab.png', viewport=True)
 
         m.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
         m.evaluate('__sim.setShapeGroup("pot")')
