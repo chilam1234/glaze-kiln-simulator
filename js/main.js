@@ -976,6 +976,8 @@ document.querySelectorAll('#handleType button').forEach(b => b.onclick = () => {
 document.querySelectorAll('#shapeSubtabs button').forEach(b => b.onclick = () => {
   ui.shapeGroup = b.dataset.group;
   refreshUI();
+  const sheet = $('sheet');
+  if (sheet) sheet.scrollTop = 0;
 });
 document.querySelectorAll('#spoutType button').forEach(b => b.onclick = () => {
   if (!customSpec || shapeLocked()) return;
@@ -1033,6 +1035,7 @@ function applyLayout() {
   const mobile = isMobileLayout();
   document.body.classList.toggle('is-mobile', mobile);
   document.body.dataset.sheet = ui.sheet;
+  document.body.dataset.shapeGroup = ui.shapeGroup;
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
@@ -1085,6 +1088,7 @@ function refreshUI() {
   if ($('nodeAdd') && customOn && customSpec) $('nodeAdd').disabled = lock || customSpec.nodes.length >= 2 + MAX_MID;
   if ($('hNodeAdd')) $('hNodeAdd').disabled = lock || !customOn || !hNodes || hNodes.length >= HANDLE_MAX;
   if ($('hNodeSub')) $('hNodeSub').disabled = lock || !customOn || !hNodes || hNodes.length <= HANDLE_MIN;
+  document.body.dataset.shapeGroup = ui.shapeGroup;
   document.querySelectorAll('#shapeSubtabs button').forEach(b => {
     b.classList.toggle('active', b.dataset.group === ui.shapeGroup);
   });

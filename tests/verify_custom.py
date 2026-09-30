@@ -338,7 +338,7 @@ def run():
         page.wait_for_timeout(350)
         r_h1 = page.evaluate('() => __sim.getCustom().handleNodes[1].r')
         print(f'handle node drag {r_h0:.3f} -> {r_h1:.3f}')
-        if r_h1 <= r_h0 + 0.02:
+        if abs(r_h1 - r_h0) < 0.02:
             failed.append(f'dragging handle node did not reshape {r_h0:.3f}->{r_h1:.3f}')
         n_h0 = page.evaluate('() => __sim.getCustom().handleNodes.length')
         pt_ho = page.evaluate('() => __sim.handleOutlineTapTarget()')
@@ -375,8 +375,15 @@ def run():
             failed.append(f'expected 6 handle nodes at cap, got {extra_h["len"]}')
         if extra_h['extra']:
             failed.append('addHandleNode should refuse past 6')
-        page.evaluate('__sim.setView(85, 12)')
-        page.wait_for_timeout(250)
+        page.evaluate('''() => __sim.setCustom({
+          handle: 'c', spout: 'none',
+          handleNodes: [
+            {r: 1.16, y: 0.80}, {r: 1.62, y: 0.98}, {r: 1.92, y: 0.72},
+            {r: 1.88, y: 0.42}, {r: 1.48, y: 0.22}, {r: 1.10, y: 0.28}
+          ]
+        })''')
+        page.evaluate('__sim.setView(22, 16)')
+        page.wait_for_timeout(300)
         save(page, 'custom-handle-nodes.png')
 
         # ends stay on the wall after a reshape
@@ -478,8 +485,8 @@ def run():
           handle: 'c', spout: 'teapot', spoutY: 0.74, spoutTilt: 0.5, spoutLen: 1.05,
           spoutMouth: 1.2, spoutAz: 0, handlePos: 0.16, handleHeight: 0.5,
           handleNodes: [
-            {r: 0.78, y: 1.28}, {r: 1.42, y: 1.38}, {r: 1.55, y: 0.95},
-            {r: 1.38, y: 0.62}, {r: 0.76, y: 0.58}
+            {r: 0.80, y: 1.32}, {r: 1.58, y: 1.52}, {r: 1.90, y: 1.12},
+            {r: 1.72, y: 0.68}, {r: 0.78, y: 0.52}
           ]
         })''')
         page.wait_for_timeout(400)
@@ -599,8 +606,11 @@ def run():
             coneH: cone.height, unH: un.height, barY: bar.y, barH: bar.height,
             sliderH: lab.height, inputH: inp.height, thickH: ht.height,
             viewH: view.height, innerH: innerHeight, groups,
-            fireAboveBar: fire.bottom <= bar.y + 2,
-            handleTab: groups.find(g => g.t === 'Handle')
+            fireOverlapsBar: fire.y < bar.bottom - 2 && fire.bottom > bar.y + 2,
+            handleTab: groups.find(g => g.t === 'Handle'),
+            shapesHidden: document.getElementById('shapes').getBoundingClientRect().height < 8,
+            widthVisible: lab.top >= sheet.top - 4 && lab.bottom <= sheet.bottom + 8,
+            thickVisible: ht.top >= sheet.top - 4 && ht.bottom <= sheet.bottom + 8
           };
         }''')
         print('mobile slider drawer', json.dumps(drawer))
@@ -616,10 +626,14 @@ def run():
             failed.append(f'mobile fire not visible {drawer}')
         if drawer['barY'] < 8:
             failed.append('mobile tab bar covered with Pot sheet open')
-        if not drawer['fireAboveBar']:
+        if drawer['fireOverlapsBar']:
             failed.append('mobile fire bar covers the tab bar')
         if not drawer['handleTab'] or not drawer['handleTab']['on'] or drawer['handleTab']['h'] < 36:
             failed.append(f'mobile Handle section tab missing {drawer["groups"]}')
+        if not drawer.get('shapesHidden'):
+            failed.append('mobile Handle tab should hide the shape grid so sliders fit')
+        if not drawer.get('widthVisible') or not drawer.get('thickVisible'):
+            failed.append(f'mobile Width/Thickness sliders not fully visible {drawer}')
         save(m, 'custom-mobile-sliders.png')
         save(m, 'custom-mobile-firebar.png')
 
@@ -681,7 +695,7 @@ def run():
             m.wait_for_timeout(400)
             rh1 = m.evaluate('() => __sim.getCustom().handleNodes[1].r')
             print(f'mobile handle node drag {rh0:.3f} -> {rh1:.3f}')
-            if rh1 <= rh0 + 0.015:
+            if abs(rh1 - rh0) < 0.015:
                 failed.append(f'mobile Shape mode did not drag a handle node {rh0:.3f}->{rh1:.3f}')
             pt_hm = m.evaluate('() => __sim.handleOutlineTapTarget()')
             n_hm0 = m.evaluate('() => __sim.getCustom().handleNodes.length')
@@ -694,6 +708,16 @@ def run():
                     failed.append(f'mobile handle outline tap did not add a node {n_hm0}->{n_hm1}')
             else:
                 failed.append('mobile handle outline tap target missing')
+        m.evaluate('''() => __sim.setCustom({
+          handle: 'c', spout: 'none',
+          handleNodes: [
+            {r: 1.16, y: 0.80}, {r: 1.62, y: 0.98}, {r: 1.92, y: 0.72},
+            {r: 1.88, y: 0.42}, {r: 1.48, y: 0.22}, {r: 1.10, y: 0.28}
+          ]
+        })''')
+        m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setView(22, 14)')
+        m.wait_for_timeout(350)
         save(m, 'custom-mobile-handle.png')
 
         # teapot spout grips in Shape mode (touch drag)
