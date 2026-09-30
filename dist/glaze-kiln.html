@@ -223,6 +223,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #customOpts .shape-group.active { display: block; }
   #handleOpts, #spoutOpts { display: block; }
   #handleOpts[hidden], #spoutOpts[hidden] { display: none !important; }
+  body[data-shape-group="spout"] #customOpts > .check { display: none; }
   #customOpts .node-row button { min-height: 44px; min-width: 44px; flex-basis: 44px; font-size: 22px; }
   #customOpts .node-row button.node-del { flex-basis: auto; min-width: 72px; font-size: 14px; padding: 8px 12px; }
   #customOpts h3 { margin: 4px 0 6px; }
@@ -249,19 +250,29 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     min-height: 0;
     padding-right: 2px;
   }
-  /* Pot sheet in Shape/custom: sliders take most of the drawer. */
+  /* Pot sheet in Shape/custom: sliders take most of the drawer, scrolling above the fire bar. */
   body:not(.sheet-collapsed)[data-sheet="pot"] #panel {
-    max-height: 68vh;
-    max-height: 68dvh;
+    max-height: 72vh;
+    max-height: 72dvh;
+    overflow: hidden;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #view {
-    min-height: 30vh;
-    min-height: 30dvh;
+    min-height: 28vh;
+    min-height: 28dvh;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] .sheet {
-    flex: 1 1 auto;
+    flex: 1 1 0%;
     max-height: none;
-    min-height: 160px;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .mobile-bar,
+  body:not(.sheet-collapsed)[data-sheet="pot"] .actions,
+  body:not(.sheet-collapsed)[data-sheet="pot"] #status {
+    flex: none;
+    position: relative;
+    z-index: 2;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider {
     font-size: 16px;
@@ -272,6 +283,26 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider input {
     min-height: 44px;
+  }
+  /* Five teapot sliders: two compact columns so Length/Opening stay above the fire bar. */
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts:not([hidden]) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 10px;
+    row-gap: 0;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts .slider {
+    font-size: 14px;
+    margin: 6px 0 4px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts .slider output {
+    font-size: 14px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts .slider input {
+    min-height: 36px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts .slider:last-child {
+    grid-column: 1 / -1;
   }
   body:not(.sheet-collapsed) .actions {
     display: flex;
@@ -441,7 +472,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] .sheet {
     max-height: min(78vh, 360px);
-    min-height: 180px;
+    min-height: 0;
+    overflow-y: auto;
   }
   body.sheet-collapsed .sheet { display: none; }
 }

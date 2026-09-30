@@ -448,6 +448,17 @@ def run():
             failed.append(f'spout tilt slider did not stick {high["tilt"]}')
         if high['len'] < 1.0:
             failed.append(f'spout length slider did not stick {high["len"]}')
+        stacked = page.evaluate('''() => {
+          const h = document.getElementById('sH').closest('label').getBoundingClientRect();
+          const az = document.getElementById('sAz').closest('label').getBoundingClientRect();
+          return {
+            display: getComputedStyle(document.getElementById('spoutOpts')).display,
+            stacked: h.bottom <= az.top + 2
+          };
+        }''')
+        print('desktop spout stack', stacked)
+        if not stacked['stacked'] or stacked['display'] == 'grid':
+            failed.append(f'desktop spout sliders should stay stacked {stacked}')
         page.evaluate('__sim.frame()')
         page.wait_for_timeout(200)
         tip_in = page.evaluate('() => __sim.gripInView("spoutTip", 0, 20)')
@@ -636,7 +647,84 @@ def run():
             failed.append(f'mobile Width/Thickness sliders not fully visible {drawer}')
         save(m, 'custom-mobile-sliders.png')
         save(m, 'custom-mobile-firebar.png')
+        save(m, 'custom-mobile-handle-tab.png')
 
+        m.evaluate('__sim.setShapeGroup("pot")')
+        m.wait_for_timeout(200)
+        save(m, 'custom-mobile-pot-tab.png')
+
+        # Spout tab: every teapot slider must sit in the viewport or in a sheet
+        # scrollport that stays above the compact fire bar (iPhone 13 ~390x664).
+        m.evaluate('() => __sim.setCustom({ spout: "teapot" })')
+        m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setSheet("pot", false)')
+        m.evaluate('__sim.setShapeGroup("spout")')
+        m.wait_for_timeout(300)
+        spout_ui = m.evaluate('''() => {
+          const ids = ['sH', 'sAz', 'sTilt', 'sLen', 'sMouth'];
+          const names = { sH: 'Height', sAz: 'Around pot', sTilt: 'Tilt', sLen: 'Length', sMouth: 'Opening' };
+          const sheet = document.getElementById('sheet');
+          const fire = document.getElementById('fireBtn');
+          const bar = document.getElementById('mobileBar');
+          const sr = sheet.getBoundingClientRect();
+          const fr = fire.getBoundingClientRect();
+          const br = bar.getBoundingClientRect();
+          const overflowY = getComputedStyle(sheet).overflowY;
+          const sheetScrolls = overflowY === 'auto' || overflowY === 'scroll';
+          const sheetAboveFire = sr.bottom <= fr.top + 6;
+          const sliders = ids.map(id => {
+            const inp = document.getElementById(id);
+            const lab = inp.closest('label');
+            const r = lab.getBoundingClientRect();
+            const hidden = !!(lab.hidden || lab.closest('[hidden]'));
+            const visibleBox = !hidden && r.width > 0 && r.height > 0;
+            const inViewport = visibleBox && r.top >= -2 && r.bottom <= innerHeight + 2
+              && r.left >= -2 && r.right <= innerWidth + 2;
+            const aboveFire = visibleBox && r.bottom <= fr.top + 4;
+            const inScrollArea = sheet.contains(lab) && sheetScrolls && sheetAboveFire;
+            return {
+              id, name: names[id], hidden,
+              y: Math.round(r.y), bottom: Math.round(r.bottom),
+              h: Math.round(r.height),
+              inputH: Math.round(inp.getBoundingClientRect().height),
+              inViewport, aboveFire,
+              reachable: hidden || (inViewport && aboveFire) || inScrollArea
+            };
+          });
+          return {
+            innerH: innerHeight, innerW: innerWidth,
+            sheet: {
+              y: Math.round(sr.y), bottom: Math.round(sr.bottom), h: Math.round(sr.height),
+              overflowY, scrollH: sheet.scrollHeight, clientH: sheet.clientHeight
+            },
+            fire: { y: Math.round(fr.y), h: Math.round(fr.height), bottom: Math.round(fr.bottom) },
+            bar: { y: Math.round(br.y), h: Math.round(br.height) },
+            sheetAboveFire, sheetScrolls,
+            fireVisible: fr.height > 0 && fr.top >= 0 && fr.bottom <= innerHeight + 2,
+            barUncovered: br.height > 0 && br.y >= 8 && br.bottom <= innerHeight + 2
+              && !(fr.y < br.bottom - 2 && fr.bottom > br.y + 2),
+            sliders
+          };
+        }''')
+        print('mobile spout sliders', json.dumps(spout_ui))
+        if spout_ui['innerH'] < 600 or spout_ui['innerW'] > 430:
+            failed.append(f'expected iPhone-sized viewport, got {spout_ui["innerW"]}x{spout_ui["innerH"]}')
+        if not spout_ui['fireVisible']:
+            failed.append(f'mobile fire bar not visible on Spout tab {spout_ui["fire"]}')
+        if not spout_ui['barUncovered']:
+            failed.append(f'mobile tab bar covered on Spout tab {spout_ui["bar"]} fire={spout_ui["fire"]}')
+        if not spout_ui['sheetAboveFire']:
+            failed.append(f'mobile Spout sheet overlaps fire bar sheet={spout_ui["sheet"]} fire={spout_ui["fire"]}')
+        missing = [s['name'] for s in spout_ui['sliders'] if s['hidden']]
+        if missing:
+            failed.append(f'mobile Spout teapot sliders hidden: {missing}')
+        buried = [s for s in spout_ui['sliders'] if not s['reachable']]
+        if buried:
+            failed.append(f'mobile Spout sliders not reachable above fire bar: {buried}')
+        save(m, 'custom-mobile-spout-tab.png')
+
+        m.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
+        m.evaluate('__sim.setShapeGroup("pot")')
         m.evaluate('__sim.setSheet("pot", true)')
         m.evaluate('__sim.setView(20, 16)')
         m.wait_for_timeout(400)
