@@ -316,6 +316,78 @@ def run():
         hs = page.evaluate('() => __sim.handleStats()')
         if hs is None:
             fail('C-loop handle missing row stats')
+        hn0 = page.evaluate('() => (__sim.getCustom().handleNodes || []).length')
+        print('handle nodes after C-loop', hn0)
+        if hn0 < 3 or hn0 > 6:
+            failed.append(f'C-loop should start with 3–6 handle nodes, got {hn0}')
+        max_h = page.evaluate('() => __sim.maxHandle')
+        if max_h != 6:
+            failed.append(f'maxHandle should be 6, got {max_h}')
+        giz_h = page.evaluate('() => __sim.gizmoScreen("handle", 1)')
+        print('handle mid gizmo', giz_h)
+        if not giz_h:
+            fail('handle node gizmos missing on desktop')
+        page.evaluate('__sim.setView(80, 14)')
+        page.wait_for_timeout(250)
+        r_h0 = page.evaluate('() => __sim.getCustom().handleNodes[1].r')
+        pt_h = page.evaluate('() => __sim.gizmoScreen("handle", 1)')
+        page.mouse.move(pt_h['x'], pt_h['y'])
+        page.mouse.down()
+        page.mouse.move(pt_h['x'] + 70, pt_h['y'] - 20, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(350)
+        r_h1 = page.evaluate('() => __sim.getCustom().handleNodes[1].r')
+        print(f'handle node drag {r_h0:.3f} -> {r_h1:.3f}')
+        if r_h1 <= r_h0 + 0.02:
+            failed.append(f'dragging handle node did not reshape {r_h0:.3f}->{r_h1:.3f}')
+        n_h0 = page.evaluate('() => __sim.getCustom().handleNodes.length')
+        pt_ho = page.evaluate('() => __sim.handleOutlineTapTarget()')
+        print('handle outline tap target', pt_ho)
+        if not pt_ho:
+            failed.append('handle outline tap target missing')
+        else:
+            page.mouse.click(pt_ho['x'], pt_ho['y'])
+            page.wait_for_timeout(300)
+            n_h1 = page.evaluate('() => __sim.getCustom().handleNodes.length')
+            print(f'handle outline click nodes {n_h0} -> {n_h1}')
+            if n_h1 != n_h0 + 1:
+                failed.append(f'handle outline click did not add a node {n_h0}->{n_h1}')
+        page.evaluate('() => __sim.selectHandle(2)')
+        page.wait_for_timeout(100)
+        n_hd0 = page.evaluate('() => __sim.getCustom().handleNodes.length')
+        page.evaluate('() => { if (document.activeElement) document.activeElement.blur(); }')
+        page.keyboard.press('Delete')
+        page.wait_for_timeout(250)
+        n_hd1 = page.evaluate('() => __sim.getCustom().handleNodes.length')
+        print(f'Delete key handle nodes {n_hd0} -> {n_hd1}')
+        if n_hd1 != n_hd0 - 1:
+            failed.append(f'Delete key did not remove handle node {n_hd0}->{n_hd1}')
+        extra_h = page.evaluate('''() => {
+          let n = 0;
+          while (__sim.getCustom().handleNodes.length < __sim.maxHandle) {
+            if (!__sim.addHandleNode()) break;
+            n += 1;
+          }
+          return { n, len: __sim.getCustom().handleNodes.length, extra: __sim.addHandleNode() };
+        }''')
+        print('handle fill', extra_h)
+        if extra_h['len'] != 6:
+            failed.append(f'expected 6 handle nodes at cap, got {extra_h["len"]}')
+        if extra_h['extra']:
+            failed.append('addHandleNode should refuse past 6')
+        page.evaluate('__sim.setView(85, 12)')
+        page.wait_for_timeout(250)
+        save(page, 'custom-handle-nodes.png')
+
+        # ends stay on the wall after a reshape
+        ends = page.evaluate('''() => {
+          const s = __sim.getCustom();
+          const a = s.handleNodes[0], b = s.handleNodes.at(-1);
+          return { a, b, wallA: a.r, wallB: b.r };
+        }''')
+        print('handle ends', ends)
+        if ends['a']['r'] < 0.2 or ends['b']['r'] < 0.2:
+            failed.append(f'handle ends not attached {ends}')
 
         # spout placement: sliders + on-canvas grips
         page.evaluate('(s) => __sim.setCustom(s)', tall_cylinder())
@@ -361,8 +433,6 @@ def run():
           spoutMouth: 1.25, spoutAz: 0, handlePos: 0.18, handleHeight: 0.55
         })''')
         page.wait_for_timeout(350)
-        page.evaluate('__sim.setView(50, 16)')
-        page.wait_for_timeout(250)
         high = page.evaluate('() => __sim.spoutPose()')
         print('spout high', json.dumps({k: round(high[k], 3) for k in ('yFrac', 'tilt', 'len', 'az', 'mouth')}))
         if high['yFrac'] < 0.7:
@@ -371,6 +441,14 @@ def run():
             failed.append(f'spout tilt slider did not stick {high["tilt"]}')
         if high['len'] < 1.0:
             failed.append(f'spout length slider did not stick {high["len"]}')
+        page.evaluate('__sim.frame()')
+        page.wait_for_timeout(200)
+        tip_in = page.evaluate('() => __sim.gripInView("spoutTip", 0, 20)')
+        print('spout tip in view after frame', tip_in)
+        if not tip_in or not tip_in.get('inside'):
+            failed.append(f'spout mouth grip not kept inside the canvas {tip_in}')
+        page.evaluate('__sim.setView(50, 16)')
+        page.wait_for_timeout(250)
         save(page, 'custom-spout-high.png')
 
         # rotate around the pot onto the side (+Z)
@@ -395,10 +473,14 @@ def run():
         if mouth1['root'] < mouth1['tip'] * 1.15:
             failed.append(f'spout root should stay thicker than a wide mouth {mouth1}')
 
-        # reset a high/angled teapot with handle for paint + fire
+        # reset a high/angled teapot with a custom-bent handle for paint + fire
         page.evaluate('''() => __sim.setCustom({
           handle: 'c', spout: 'teapot', spoutY: 0.74, spoutTilt: 0.5, spoutLen: 1.05,
-          spoutMouth: 1.2, spoutAz: 0, handlePos: 0.16, handleHeight: 0.5
+          spoutMouth: 1.2, spoutAz: 0, handlePos: 0.16, handleHeight: 0.5,
+          handleNodes: [
+            {r: 0.78, y: 1.28}, {r: 1.42, y: 1.38}, {r: 1.55, y: 0.95},
+            {r: 1.38, y: 0.62}, {r: 0.76, y: 0.58}
+          ]
         })''')
         page.wait_for_timeout(400)
 
@@ -493,6 +575,55 @@ def run():
             failed.append('mobile tab bar overlaps the canvas')
         m.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
         m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setSheet("pot", false)')
+        m.evaluate('__sim.setShapeGroup("handle")')
+        m.wait_for_timeout(250)
+        drawer = m.evaluate('''() => {
+          const sheet = document.getElementById('sheet').getBoundingClientRect();
+          const fire = document.getElementById('fireBtn').getBoundingClientRect();
+          const bar = document.getElementById('mobileBar').getBoundingClientRect();
+          const cone = document.getElementById('cone').getBoundingClientRect();
+          const un = document.getElementById('unfireBtn').getBoundingClientRect();
+          const hw = document.getElementById('hW');
+          const lab = hw.closest('label').getBoundingClientRect();
+          const inp = hw.getBoundingClientRect();
+          const ht = document.getElementById('hT').getBoundingClientRect();
+          const view = document.getElementById('view').getBoundingClientRect();
+          const groups = [...document.querySelectorAll('#shapeSubtabs button')].map(b => ({
+            t: b.textContent.trim(), h: b.getBoundingClientRect().height,
+            on: b.classList.contains('active')
+          }));
+          return {
+            sheetH: sheet.height, sheetY: sheet.y, fireH: fire.height, fireY: fire.y,
+            fireVisible: fire.height > 0 && fire.bottom <= innerHeight + 1,
+            coneH: cone.height, unH: un.height, barY: bar.y, barH: bar.height,
+            sliderH: lab.height, inputH: inp.height, thickH: ht.height,
+            viewH: view.height, innerH: innerHeight, groups,
+            fireAboveBar: fire.bottom <= bar.y + 2,
+            handleTab: groups.find(g => g.t === 'Handle')
+          };
+        }''')
+        print('mobile slider drawer', json.dumps(drawer))
+        if drawer['sheetH'] < 200:
+            failed.append(f'mobile slider area still cramped {drawer["sheetH"]}')
+        if drawer['sheetH'] < drawer['innerH'] * 0.28:
+            failed.append(f'mobile sliders should take most of the drawer {drawer}')
+        if drawer['inputH'] < 36 or drawer['sliderH'] < 40:
+            failed.append(f'mobile Width slider too small {drawer["sliderH"]} / {drawer["inputH"]}')
+        if drawer['fireH'] > 42 or drawer['coneH'] > 44 or drawer['unH'] > 42:
+            failed.append(f'mobile fire bar not compact fire={drawer["fireH"]} cone={drawer["coneH"]} un={drawer["unH"]}')
+        if not drawer['fireVisible'] or drawer['fireH'] < 24:
+            failed.append(f'mobile fire not visible {drawer}')
+        if drawer['barY'] < 8:
+            failed.append('mobile tab bar covered with Pot sheet open')
+        if not drawer['fireAboveBar']:
+            failed.append('mobile fire bar covers the tab bar')
+        if not drawer['handleTab'] or not drawer['handleTab']['on'] or drawer['handleTab']['h'] < 36:
+            failed.append(f'mobile Handle section tab missing {drawer["groups"]}')
+        save(m, 'custom-mobile-sliders.png')
+        save(m, 'custom-mobile-firebar.png')
+
+        m.evaluate('__sim.setSheet("pot", true)')
         m.evaluate('__sim.setView(20, 16)')
         m.wait_for_timeout(400)
         r_before = m.evaluate('() => __sim.getCustom().nodes.at(-1).r')
@@ -534,6 +665,37 @@ def run():
             failed.append(f'mobile could not add many nodes ({n_phone})')
         save(m, 'custom-mobile-many-nodes.png')
 
+        # handle nodes on the phone
+        m.evaluate('(s) => { s.handle = "c"; s.spout = "none"; return __sim.setCustom(s); }', wide_bowl())
+        m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setView(80, 12)')
+        m.wait_for_timeout(400)
+        hn_m0 = m.evaluate('() => (__sim.getCustom().handleNodes || []).length')
+        hg = m.evaluate('() => __sim.gizmoScreen("handle", 1)')
+        print('mobile handle gizmos', hn_m0, hg)
+        if hn_m0 < 3 or not hg:
+            failed.append(f'mobile handle nodes missing count={hn_m0} giz={hg}')
+        else:
+            rh0 = m.evaluate('() => __sim.getCustom().handleNodes[1].r')
+            cdp_drag(m, [hg, {'x': hg['x'] + 22, 'y': hg['y'] - 10}, {'x': hg['x'] + 40, 'y': hg['y'] - 16}])
+            m.wait_for_timeout(400)
+            rh1 = m.evaluate('() => __sim.getCustom().handleNodes[1].r')
+            print(f'mobile handle node drag {rh0:.3f} -> {rh1:.3f}')
+            if rh1 <= rh0 + 0.015:
+                failed.append(f'mobile Shape mode did not drag a handle node {rh0:.3f}->{rh1:.3f}')
+            pt_hm = m.evaluate('() => __sim.handleOutlineTapTarget()')
+            n_hm0 = m.evaluate('() => __sim.getCustom().handleNodes.length')
+            if pt_hm:
+                cdp_tap(m, pt_hm)
+                m.wait_for_timeout(350)
+                n_hm1 = m.evaluate('() => __sim.getCustom().handleNodes.length')
+                print(f'mobile handle outline tap {n_hm0} -> {n_hm1}')
+                if n_hm1 != n_hm0 + 1:
+                    failed.append(f'mobile handle outline tap did not add a node {n_hm0}->{n_hm1}')
+            else:
+                failed.append('mobile handle outline tap target missing')
+        save(m, 'custom-mobile-handle.png')
+
         # teapot spout grips in Shape mode (touch drag)
         m.evaluate('(s) => { s.handle = "c"; s.spout = "teapot"; s.spoutY = 0.55; s.spoutAz = 0; return __sim.setCustom(s); }', tall_cylinder())
         m.evaluate('__sim.setTouchMode("shape")')
@@ -561,6 +723,10 @@ def run():
             print(f'mobile spout tip tilt {tilt0:.3f} -> {tilt1:.3f}')
             if tilt1 <= tilt0 + 0.03:
                 failed.append(f'mobile Shape mode did not drag spout tip {tilt0:.3f}->{tilt1:.3f}')
+            tip_box = m.evaluate('() => __sim.gripInView("spoutTip", 0, 16)')
+            print('mobile spout tip in view', tip_box)
+            if tip_box and not tip_box.get('inside'):
+                failed.append(f'mobile spout mouth grip at canvas edge {tip_box}')
         # drawer open should not cover the tab bar
         m.evaluate('__sim.setSheet("pot", false)')
         m.wait_for_timeout(200)
