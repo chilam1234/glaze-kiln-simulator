@@ -1085,15 +1085,28 @@ async function bootCloud() {
 
 // ---------- UI wiring ----------
 const $ = (id) => document.getElementById(id);
+const FAM_SHORT = { neutral: 'Whites', blues: 'Blues', warm: 'Warm', dark: 'Dark' };
+ui.glazeFam = GLAZES[GLAZE_INDEX[ui.glaze]].family;
+const famRow = $('glazeFams');
+for (const [fam, label] of FAMILIES) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.fam = fam;
+  b.textContent = FAM_SHORT[fam] || label;
+  b.title = label;
+  b.setAttribute('role', 'tab');
+  b.onclick = () => { ui.glazeFam = fam; refreshUI(); };
+  famRow.appendChild(b);
+}
 const gl = $('glazes');
 for (const [fam, label] of FAMILIES) {
-  const hd = document.createElement('div'); hd.className = 'fam'; hd.textContent = label; gl.appendChild(hd);
+  const hd = document.createElement('div'); hd.className = 'fam'; hd.dataset.fam = fam; hd.textContent = label; gl.appendChild(hd);
   for (const g of GLAZES.filter(x => x.family === fam)) {
     const b = document.createElement('button'); b.className = 'glaze'; b.dataset.glaze = g.id;
     const mid = g.fired[Math.min(g.fired.length - 1, 3)][1];
     b.innerHTML = `<span class="sw" style="background:linear-gradient(135deg, ${g.raw} 50%, ${mid} 50%)"></span><span class="nm">${g.name.replace(/ ([A-Z]{1,3}-\d+)$/, '')}${/ [A-Z]{1,3}-\d+$/.test(g.name) ? `<small>${g.name.match(/[A-Z]{1,3}-\d+$/)[0]}</small>` : ''}</span>`;
     b.title = `${g.name}${g.src ? ' (colours approximated from ' + g.src + ')' : g.like ? ' (' + g.like + ')' : ''}. Swatch: raw colour | fired colour`;
-    b.onclick = () => { ui.glaze = g.id; refreshUI(); };
+    b.onclick = () => { ui.glaze = g.id; ui.glazeFam = g.family; refreshUI(); };
     gl.appendChild(b);
   }
 }
@@ -1202,7 +1215,13 @@ document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => b.onclick = ()
     document.body.classList.remove('sheet-collapsed');
   }
   refreshUI();
+  resize();
 });
+$('foldBtn').onclick = () => {
+  document.body.classList.toggle('sheet-collapsed');
+  refreshUI();
+  resize();
+};
 document.querySelectorAll('#touchMode button').forEach(b => b.onclick = () => {
   ui.touchMode = b.dataset.mode;
   ui.touchOrbit = ui.touchMode === 'orbit';
@@ -1458,7 +1477,17 @@ function refreshUI() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
-  document.querySelectorAll('.glaze').forEach(b => b.classList.toggle('active', b.dataset.glaze === ui.glaze));
+  document.querySelectorAll('#glazeFams button').forEach(b => {
+    const on = b.dataset.fam === ui.glazeFam;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#glazes .fam').forEach(el => { el.hidden = el.dataset.fam !== ui.glazeFam; });
+  document.querySelectorAll('.glaze').forEach(b => {
+    const g = GLAZES[GLAZE_INDEX[b.dataset.glaze]];
+    b.hidden = !g || g.family !== ui.glazeFam;
+    b.classList.toggle('active', b.dataset.glaze === ui.glaze);
+  });
   { const g = GLAZES[GLAZE_INDEX[ui.glaze]]; $('glazeNow').innerHTML = `<b>${g.name}</b>${g.src ? ' &middot; source: ' + g.src : g.like ? ' &middot; ' + g.like : ''} &middot; ${cone10Note(g.id)}`; }
   const layers = layersOf(thickness[ui.glaze]);
   $('thick').value = layers; $('thickOut').textContent = layers === 1 ? '1 layer' : `${layers} layers`;
@@ -1489,6 +1518,13 @@ function refreshUI() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   });
+  const fold = $('foldBtn');
+  if (fold) {
+    const open = !document.body.classList.contains('sheet-collapsed');
+    fold.textContent = open ? 'Fold' : 'Menu';
+    fold.title = open ? 'Hide the menu so the pot fills the screen.' : 'Show the menu.';
+    fold.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
   document.querySelectorAll('#touchMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === ui.touchMode));
   const customOn = ui.shape === 'custom' && customSpec;
   $('customOpts').hidden = !customOn;
@@ -1587,15 +1623,15 @@ bootCloud();
 window.__sim = {
   get state() { return ui.simState; },
   setShape, fire, unfire, clear: clearAll,
-  setGlaze(id) { ui.glaze = id; refreshUI(); },
+  setGlaze(id) { ui.glaze = id; const g = GLAZES[GLAZE_INDEX[id]]; if (g) ui.glazeFam = g.family; refreshUI(); },
   setTool(t) { ui.tool = t; refreshUI(); },
   setThickness(v) { thickness[ui.glaze] = v; refreshUI(); },
   undo: undoLast,
   setBrushSize(v) { ui.size = v; refreshUI(); },
-  pour(id, h, mode = 'below', t) { if (id) ui.glaze = id; ui.pourH = h; ui.pourMode = mode; if (t) thickness[ui.glaze] = t; doPour(); refreshUI(); },
+  pour(id, h, mode = 'below', t) { if (id) { ui.glaze = id; const g = GLAZES[GLAZE_INDEX[id]]; if (g) ui.glazeFam = g.family; } ui.pourH = h; ui.pourMode = mode; if (t) thickness[ui.glaze] = t; doPour(); refreshUI(); },
   // brush dabs in UV space along a horizontal band at a height fraction (outer wall)
   brushBand(id, hFrac, t, size = 0.12, angle0 = 0, angle1 = 360) {
-    ui.glaze = id; if (t) thickness[id] = t; ui.size = size;
+    ui.glaze = id; const g = GLAZES[GLAZE_INDEX[id]]; if (g) ui.glazeFam = g.family; if (t) thickness[id] = t; ui.size = size;
     const mark = state.ops.length;
     state.beginStroke();
     const k = outerRow(hFrac); const v = (k + 0.5) / TEX_H;

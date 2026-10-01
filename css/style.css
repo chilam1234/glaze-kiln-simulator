@@ -51,8 +51,8 @@ body { display: flex; }
 #view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .view-folio { position: absolute; top: 20px; left: 22px; z-index: 2; margin: 0; pointer-events: none; font: 11px/1.3 var(--font-body); letter-spacing: .16em; text-transform: uppercase; color: var(--ink); }
 .mobile-bar, .mobile-only { display: none; }
-.sheet { display: block; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
-.actions, #status, .cloud, .credit { flex: none; }
+.sheet { display: block; flex: 1 1 240px; min-height: 168px; overflow-x: hidden; overflow-y: auto; }
+.actions, #status, .cloud, .credit { flex: none; position: relative; z-index: 2; background: var(--panel-bg); }
 .mast { margin: 0 0 18px; }
 .kicker { margin: 0 0 10px; font: 11px/1 var(--font-body); letter-spacing: .18em; text-transform: uppercase; color: var(--ink); }
 h1 { font: 400 48px/0.86 var(--font-display); color: var(--ink); margin: 0; letter-spacing: -0.03em; }
@@ -114,16 +114,18 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   position: absolute; top: 8px; right: 8px; z-index: 1; width: 36px; height: 36px; border-radius: 0;
   font-size: 20px; line-height: 1; padding: 0; background: var(--paper); color: var(--ink); border: 1px solid var(--ink);
 }
-#glazes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; max-height: 220px; overflow-y: auto; padding: 0 4px 4px 0;
-  scrollbar-width: thin; scrollbar-color: var(--amaco-sky) transparent; }
-#glazes .fam { grid-column: 1 / -1; position: sticky; top: 0; z-index: 1; margin-top: 8px; padding: 4px 0; background: var(--paper);
+.glaze-fams { margin: 0 0 6px; padding: 2px 0 6px; background: var(--panel-bg); }
+.glaze-fams button { min-height: 36px; padding: 6px 2px; font-size: 11px; letter-spacing: 0; }
+#glazes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: none; overflow: visible; padding: 0 0 12px; }
+#glazes .fam { grid-column: 1 / -1; margin-top: 4px; padding: 2px 0; background: var(--paper);
   color: var(--ink); font: 500 10px var(--font-body); letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid var(--panel-border); border-radius: 0; }
+.glaze[hidden], #glazes .fam[hidden] { display: none; }
 #glazes .fam:first-child { margin-top: 0; }
 #glazeNow { margin: 6px 0 2px; min-height: 2.4em; }
 #glazeNow b { color: var(--amaco-navy); }
 .glaze .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.glaze { display: flex; align-items: center; gap: 6px; padding: 3px 5px; min-width: 0; text-align: left; font: 500 12.5px var(--font-body); letter-spacing: 0; }
-.glaze .sw { width: 18px; height: 18px; border-radius: 0; flex: none; border: 1px solid color-mix(in srgb, var(--ink) 35%, var(--paper)); }
+.glaze { display: flex; align-items: center; gap: 6px; padding: 6px 8px; min-height: 40px; min-width: 0; text-align: left; font: 500 12.5px var(--font-body); letter-spacing: 0; }
+.glaze .sw { width: 22px; height: 22px; border-radius: 0; flex: none; border: 1px solid color-mix(in srgb, var(--ink) 35%, var(--paper)); }
 .glaze.active { outline: 1px solid var(--ink); outline-offset: -1px; background: color-mix(in srgb, var(--ink) 8%, var(--paper)); color: var(--ink); border-color: var(--ink); }
 .glaze.active:hover { background: color-mix(in srgb, var(--ink) 12%, var(--paper)); color: var(--ink); }
 .glaze.active .sw { box-shadow: inset 0 0 0 1px var(--ink); }
@@ -209,6 +211,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     flex: none;
     flex-wrap: wrap;
   }
+  .fold-btn { flex: 1 0 100%; min-height: 40px; margin: 0; }
   .mobile-tabs {
     display: flex;
     flex: 1;
@@ -285,6 +288,50 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     overflow-x: hidden;
     overflow-y: auto;
   }
+  /* Glaze sheet: the list needs the room above the fire bar, or the chips sit under Cone and Fire. */
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #panel {
+    max-height: none;
+    flex: 1 1 auto;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #view {
+    flex: 0 0 22vh;
+    flex-basis: 22dvh;
+    height: 22vh;
+    height: 22dvh;
+    min-height: 0;
+    max-height: 22vh;
+    max-height: 22dvh;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-padding-top: 52px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    margin: 0 0 8px;
+    padding: 0 0 8px;
+    background: var(--panel-bg);
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] > h2,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #glazes .fam { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] > p.hint:not(#glazeNow) { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #glazeNow {
+    min-height: 0;
+    margin: 4px 0 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .cloud h2,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #cloudWho { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .cloud { padding-top: 4px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .credit { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] .mobile-bar,
   body:not(.sheet-collapsed)[data-sheet="pot"] .actions,
   body:not(.sheet-collapsed)[data-sheet="pot"] #status {
@@ -387,6 +434,16 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     text-overflow: clip;
   }
   body.sheet-collapsed .sheet { display: none; }
+  body.sheet-collapsed #panel { max-height: none; flex: 0 0 auto; }
+  body.sheet-collapsed #view {
+    flex: 1 1 auto;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+  }
+  body.sheet-collapsed .cloud,
+  body.sheet-collapsed .credit,
+  body.sheet-collapsed #status { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] .sheet > :not([data-sheet="pot"]) { display: none; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet > :not([data-sheet="glaze"]) { display: none; }
   body:not(.sheet-collapsed)[data-sheet="tool"] .sheet > :not([data-sheet="tool"]) { display: none; }
@@ -399,6 +456,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
+  .glaze-fams button { min-height: 44px; font-size: 13px; }
   .glaze { min-height: 44px; padding: 6px 8px; font-size: 13px; }
   .glaze .sw { width: 22px; height: 22px; }
   #tools button, #pourMode button, #pourBtn, .actions .row button, .cloud .row button, #cloudSend {
@@ -450,7 +508,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     row-gap: 4px;
     padding: 4px 10px calc(4px + env(safe-area-inset-bottom, 0px));
   }
-  .mobile-bar { grid-area: bar; margin: 0; flex-wrap: nowrap; }
+  .mobile-bar { grid-area: bar; margin: 0; flex-wrap: wrap; }
+  .fold-btn { flex: 1 0 100%; min-height: 36px; }
   .mobile-tabs button, #touchMode button { min-height: 44px; }
   .actions, body:not(.sheet-collapsed) .actions { display: contents; }
   .cone-fire {
@@ -519,5 +578,34 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     min-height: 0;
     overflow-y: auto;
   }
+  /* Glaze list overlays the pot and scrolls on its own. The 22vh view lock is for portrait only. */
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #view {
+    flex: 1 1 auto;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #panel {
+    flex: 0 1 auto;
+    max-height: none;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 4px);
+    top: auto;
+    height: auto;
+    max-height: min(240px, calc(100dvh - 100% - 4px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--panel-border);
+    z-index: 6;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams { margin-bottom: 4px; padding-bottom: 4px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams button { min-height: 36px; padding: 4px 2px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze { min-height: 40px; padding: 4px 6px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze .nm { white-space: nowrap; text-overflow: ellipsis; }
   body.sheet-collapsed .sheet { display: none; }
 }

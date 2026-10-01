@@ -19,9 +19,9 @@
     <p class="kicker">Specimen log</p>
     <h1>Kiln</h1>
     <p class="folio" id="engineLine">Clay, then fire</p>
-    <p class="folio">Glaze Kiln is a browser tool for painting glaze on a pot and firing it. <a href="https://chilam1234.github.io/glaze-kiln-simulator/privacy.html">Privacy policy</a></p>
   </header>
   <div id="mobileBar" class="mobile-bar">
+    <button type="button" id="foldBtn" class="fold-btn" aria-expanded="true" title="Hide the menu so the pot fills the screen.">Fold</button>
     <div class="mobile-tabs" role="tablist" aria-label="Controls">
       <button type="button" role="tab" data-sheet="pot" aria-controls="sheet">Pot</button>
       <button type="button" role="tab" data-sheet="glaze" aria-controls="sheet">Glaze</button>
@@ -121,6 +121,7 @@
     </section>
     <section data-sheet="glaze">
       <h2>Glaze</h2>
+      <div class="row glaze-fams" id="glazeFams" role="tablist" aria-label="Glaze family"></div>
       <div id="glazes"></div>
       <p id="glazeNow" class="hint"></p>
       <label class="slider">Layers <output id="thickOut"></output>
