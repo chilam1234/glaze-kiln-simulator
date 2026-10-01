@@ -5,7 +5,7 @@ export function makePotMaterial(tex) {
   const mat = new THREE.MeshPhysicalMaterial({
     map: tex.color, roughness: 1, roughnessMap: tex.props, metalness: 1, metalnessMap: tex.props,   // props.b = metallic glaze amount
     clearcoat: 1, clearcoatMap: tex.props, clearcoatRoughness: 0.12, clearcoatRoughnessMap: tex.props,
-    bumpMap: tex.height, bumpScale: 1.4, envMapIntensity: 1.0,
+    bumpMap: tex.height, bumpScale: 2.6, envMapIntensity: 1.0,
   });
   const uniforms = { uFx: { value: tex.fx }, uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color(1, 0.35, 0.08) } };
   mat.userData.uniforms = uniforms;
@@ -61,9 +61,21 @@ float crackLines(vec3 p, float scale, float width){
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb*crackCol*1.4, amt*mix(0.9, 0.55, fx.a));
   }
 }`)
+      .replace('#include <clearcoat_normal_fragment_begin>', `#include <clearcoat_normal_fragment_begin>
+  // Glass follows the glaze film. The coat, a drip, and an overlap are in the bump;
+  // the clearcoat was still using the bare clay normal, so fired runs disappeared.
+  clearcoatNormal = normal;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-{ float ndv = clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0);
-  totalEmissiveRadiance += uGlowColor * uGlow * (0.25 + 0.75 * pow(ndv, 1.5)); }`);
+{
+  float ndv = clamp(abs(dot(normalize(normal), normalize(vViewPosition))), 0.0, 1.0);
+  float y = dot(diffuseColor.rgb, vec3(0.30, 0.59, 0.11));
+  // Orange heat, plus the coat's own colour so a blue glaze stays cooler and
+  // darker than the clay instead of washing out to the same white-hot.
+  vec3 hot = uGlowColor * (0.18 + 0.55 * sqrt(clamp(y, 0.0, 1.0)));
+  hot += diffuseColor.rgb * (0.22 / max(y, 0.05));
+  diffuseColor.rgb = mix(diffuseColor.rgb, hot, uGlow * 0.45);
+  totalEmissiveRadiance += hot * uGlow * (0.75 + 0.25 * pow(ndv, 1.15));
+}`);
   };
   return mat;
 }

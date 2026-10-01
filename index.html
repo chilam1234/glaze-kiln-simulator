@@ -122,64 +122,69 @@
       <h2>Glaze</h2>
       <div id="glazes"></div>
       <p id="glazeNow" class="hint"></p>
-      <label class="slider">Thickness <output id="thickOut"></output>
-        <input type="range" id="thick" min="0.1" max="1.5" step="0.05"></label>
+      <label class="slider">Layers <output id="thickOut"></output>
+        <input type="range" id="thick" min="1" max="5" step="1" value="2" title="How many coats the next stroke lays down."></label>
+      <p class="hint">Each stroke adds this many coats. Undo steps back one coat or shape change.</p>
     </section>
     <section data-sheet="tool">
       <h2>Tool</h2>
+      <p class="hint" id="toolLock" hidden>Painting is locked. Unfire to paint again.</p>
       <div class="row seg" id="tools">
-        <button data-tool="brush">Brush</button>
-        <button data-tool="pour">Pour / dip</button>
+        <button type="button" data-tool="brush">Brush</button>
+        <button type="button" data-tool="pour">Pour</button>
       </div>
       <div id="brushOpts">
         <label class="slider">Brush size <output id="sizeOut"></output>
           <input type="range" id="size" min="0.03" max="0.4" step="0.01" value="0.12"></label>
-        <p class="hint desktop-only">Drag on the pot to paint. Drag off the pot (or right-drag) to orbit.</p>
-        <p class="hint mobile-only">One finger paints. Two fingers rotate and pinch-zoom, or switch to Orbit.</p>
+        <p class="hint desktop-only">Drag on the pot to paint. Drag off the pot, or right-drag, to turn it.</p>
+        <p class="hint mobile-only">One finger paints. Two fingers turn and pinch-zoom, or use Orbit.</p>
       </div>
       <div id="pourOpts" hidden>
-        <label class="slider">Line height <output id="pourHOut"></output>
+        <label class="slider">Dip line <output id="pourHOut"></output>
           <input type="range" id="pourH" min="0" max="1" step="0.01" value="0.66"></label>
         <div class="row seg" id="pourMode">
-          <button data-mode="below">Below line</button>
-          <button data-mode="above">Above line</button>
+          <button type="button" data-mode="below">Cover below</button>
+          <button type="button" data-mode="above">Cover above</button>
         </div>
         <button id="pourBtn" class="wide">Pour</button>
-        <p class="hint desktop-only">Or click on the pot to pour at that height.</p>
-        <p class="hint mobile-only">Tap the pot to pour at that height, or use Pour above.</p>
+        <p class="hint">Glaze stops at the dip line.</p>
+        <p class="hint desktop-only">Click the pot to move the line, or use Pour.</p>
+        <p class="hint mobile-only">Tap the pot to move the line, or use Pour.</p>
       </div>
-      <label class="check"><input type="checkbox" id="wax" checked> Wax the foot (keep it bare)</label>
+      <label class="check" title="A wax resist so the foot stays bare clay."><input type="checkbox" id="wax" checked> Wax the foot (keep it bare)</label>
     </section>
   </div>
   <section class="actions">
     <div class="cone-fire">
-      <div class="row seg" id="cone" title="Orton cones at 60°C/h. Cone 6 is the default look; Cone 10 is hotter, runnier, and (for some glazes) a different colour.">
-        <button type="button" data-cone="6">Cone 6 <small>~1222°C</small></button>
-        <button type="button" data-cone="10">Cone 10 <small>~1285°C</small></button>
+      <div class="row seg" id="cone" title="Orton cones at 60°C/h. Cone 6 is the usual stoneware fire. Cone 10 is hotter and runnier.">
+        <button type="button" data-cone="6" title="About 1222°C. The usual stoneware fire.">Cone 6 <small>~1222°C</small></button>
+        <button type="button" data-cone="10" title="About 1285°C. Hotter, runnier, and some glazes change colour.">Cone 10 <small>~1285°C</small></button>
       </div>
-      <button id="fireBtn" class="fire">Fire kiln</button>
+      <button id="fireBtn" class="fire" title="Melt the glaze. Painting locks until you Unfire.">Fire kiln</button>
     </div>
     <div class="row aux-row">
-      <button id="unfireBtn">Unfire<span class="long-label"> / keep painting</span></button>
-      <button id="clearBtn">Clear</button>
+      <button id="unfireBtn" title="Unlock painting. The fired surface goes back to raw glaze.">Unfire</button>
+      <button type="button" id="undoBtn" title="Step back one coat, pour, or shape change.">Undo</button>
+      <button id="clearBtn" title="Wipe the glaze off and start from raw clay.">Clear</button>
     </div>
   </section>
   <p id="status">Loading…</p>
   <section class="cloud" id="cloud">
     <h2>Record</h2>
-    <p class="hint" id="cloudWho">Sign in to keep this pot.</p>
+    <p class="hint" id="cloudWho">Sign in to save or share this pot.</p>
+    <div class="row" id="socialRow" hidden></div>
     <form class="cloud-form" id="cloudForm" hidden>
-      <input id="cloudEmail" type="email" autocomplete="email" required placeholder="email">
+      <input id="cloudEmail" type="email" autocomplete="email" required placeholder="Email for a sign-in link" aria-label="Email for a sign-in link">
       <button type="submit" id="cloudSend">Send link</button>
     </form>
     <select id="potList" hidden></select>
     <div class="row">
-      <button type="button" id="saveBtn">Save</button>
-      <button type="button" id="shareBtn">Share</button>
-      <button type="button" id="signBtn">Sign in</button>
+      <button type="button" id="saveBtn" title="Save this pot to your account.">Save</button>
+      <button type="button" id="shareBtn" title="Save and copy a link someone else can open.">Share</button>
+      <button type="button" id="signBtn" title="Email yourself a sign-in link.">Sign in</button>
     </div>
   </section>
-  <p class="credit">Glaze colors approximated from AMACO product photos. Not affiliated with AMACO.</p>
+  <p class="credit">Paint glaze on a pot, then fire it. Colors are approximated from AMACO product photos. Not affiliated with AMACO. <a href="privacy.html">Privacy</a></p>
 </aside>
 <main id="view">
   <p class="view-folio">The pot is the specimen</p>

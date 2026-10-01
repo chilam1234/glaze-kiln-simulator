@@ -31,6 +31,9 @@ function messageFrom(data, status) {
   if (code === 'PGRST205' || /schema cache/i.test(data?.message || '')) {
     return 'The pots table is not in this project yet. Open the SQL editor and run supabase/pots.sql.';
   }
+  if (code === 'over_email_send_rate_limit' || /rate limit/i.test(data?.msg || data?.message || '')) {
+    return 'Too many sign-in emails. Wait about an hour, or open the link already in your inbox.';
+  }
   if (/redirect/i.test(data?.msg || data?.message || data?.error_description || '')) {
     return 'This page is not on the sign-in allow list. In Authentication → URL configuration, add this site and set it as the Site URL.';
   }
@@ -127,6 +130,24 @@ export async function restoreSession() {
     try { return (await refresh(stored)).user; } catch { writeStore(null); return null; }
   }
   return stored.user;
+}
+
+const SOCIAL_NAMES = { google: 'Google', github: 'GitHub', apple: 'Apple', discord: 'Discord', facebook: 'Facebook', twitter: 'X', azure: 'Microsoft', gitlab: 'GitLab', linkedin_oidc: 'LinkedIn', slack_oidc: 'Slack' };
+
+export function socialLabel(id) {
+  return SOCIAL_NAMES[id] || id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+export async function enabledSocial() {
+  const data = await api('/auth/v1/settings');
+  const ext = data?.external || {};
+  return Object.keys(ext).filter((k) => ext[k] && k !== 'email' && k !== 'phone' && k !== 'anonymous_users');
+}
+
+export function socialSignIn(provider) {
+  const redirect = location.origin + location.pathname + location.search;
+  const q = new URLSearchParams({ provider, redirect_to: redirect, apikey: KEY });
+  location.assign(`${URL}/auth/v1/authorize?${q}`);
 }
 
 export async function sendLink(email) {

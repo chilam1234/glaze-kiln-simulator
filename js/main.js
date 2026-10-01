@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine } from './cloud.js';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
 import { makePotMaterial } from './material.js';
 
 const view = document.getElementById('view');
@@ -86,6 +86,9 @@ const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 
 let customSpec = null;
 let selectedNode = -1;
 let selectedHandle = -1;
+const LAYER = 0.3;
+const layersOf = (amount) => Math.min(5, Math.max(1, Math.round(amount / LAYER)));
+const amountOf = (layers) => layersOf(layers) * LAYER;
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
@@ -140,14 +143,20 @@ function setShape(kind) {
     }
     const d = dimsCm(customSpec);
     setStatus(`Custom ${src} — drag the red nodes. ${Math.round(d.ml)} ml.`);
+    noteShape();
     return;
   }
+  const same = ui.shape === kind && !customSpec;
   customSpec = null;
   selectedNode = -1;
   selectedHandle = -1;
   ui.shape = kind;
   applyBuiltPot(buildPot(kind));
   setStatus(`${kind[0].toUpperCase() + kind.slice(1)} ready. Paint some glaze, then fire.`);
+  if (same) {
+    if (historyArmed && !historyLock) steps.push({ kind: 'clear' });
+    refreshUI();
+  } else noteShape();
 }
 function shapeLocked() { return ui.simState === 'fired' || ui.simState === 'firing'; }
 function showingGizmos() {
@@ -167,7 +176,10 @@ function rebuildCustom(opts = {}) {
     noFrame: true,
     skipUi: !!opts.skipUi,
   });
-  if (!opts.preview) ensureGripsInView();
+  if (!opts.preview) {
+    ensureGripsInView();
+    noteShape();
+  }
 }
 
 // ---------- input: brush + pour on the mesh ----------
@@ -664,6 +676,7 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch') controls.enabled = false;
     painting = true; lastScreen = [e.clientX, e.clientY]; paintPointer = e.pointerId;
     renderer.domElement.setPointerCapture(e.pointerId);
+    coatMark = state.ops.length;
     state.beginStroke(); dabFromHit(h);
   } else {
     if (e.pointerType !== 'touch') controls.enabled = false;
@@ -738,6 +751,11 @@ const endStroke = (e) => {
   }
   if (e && paintPointer !== null && e.pointerId !== paintPointer && touchPointers.size) return;
   painting = false; paintPointer = null; controls.enabled = true;
+  if (coatMark >= 0) {
+    const mark = coatMark;
+    coatMark = -1;
+    commitCoat(mark);
+  }
 };
 renderer.domElement.addEventListener('pointerup', endStroke);
 renderer.domElement.addEventListener('pointercancel', endStroke);
@@ -757,9 +775,12 @@ document.addEventListener('gesturechange', (e) => e.preventDefault());
 document.addEventListener('gestureend', (e) => e.preventDefault());
 
 function doPour() {
+  const mark = state.ops.length;
   state.pour(GLAZE_INDEX[ui.glaze], ui.pourH, ui.pourMode, thickness[ui.glaze]);
+  commitCoat(mark);
   showPourRing(ui.pourH);
-  setStatus(`Poured ${GLAZES[GLAZE_INDEX[ui.glaze]].name} ${ui.pourMode} ${Math.round(ui.pourH * 100)}% height.`);
+  const where = ui.pourMode === 'above' ? 'above' : 'below';
+  setStatus(`Poured ${GLAZES[GLAZE_INDEX[ui.glaze]].name} ${where} the line (${Math.round(ui.pourH * 100)}%).`);
 }
 
 // ---------- firing ----------
@@ -780,10 +801,128 @@ async function fire(seed) {
   await animateTo(glow, 'v', 0, 1600);
   ui.simState = 'fired'; refreshUI();
   const ds = state.dripStats || {};
-  setStatus(`Fired in ${((performance.now() - t0) / 1000).toFixed(1)} s (seed ${state.seed}, ${ds.drips ?? 0} runs). Orbit to inspect; "Unfire" to keep painting.`);
+  setStatus(`Painting is locked. Unfire to paint again. Seed ${state.seed}, ${ds.drips ?? 0} runs.`);
 }
-function unfire() { if (ui.simState !== 'fired') return; state.unfire(); ui.simState = 'raw'; refreshUI(); setStatus('Back to raw glaze. Keep painting.'); }
-function clearAll() { if (ui.simState === 'firing') return; state.clear(); ui.simState = 'raw'; refreshUI(); setStatus('Cleared.'); }
+function unfire() { if (ui.simState !== 'fired') return; state.unfire(); ui.simState = 'raw'; refreshUI(); setStatus('Painting is open. Brush or pour, then fire.'); }
+function clearAll() {
+  if (ui.simState === 'firing') return;
+  state.clear();
+  ui.simState = 'raw';
+  if (historyArmed && !historyLock) steps.push({ kind: 'clear' });
+  refreshUI();
+  setStatus('Cleared. Paint some glaze, then fire.');
+}
+
+// Each coat, pour, shape edit, wax toggle, and clear is one step. Undo drops the
+// last step and rebuilds the pot from the baseline plus whatever steps remain.
+let historyArmed = false;
+let historyLock = false;
+let steps = [];
+let baseline = null;
+let lastShapeKey = '';
+let coatMark = -1;
+
+function shapeKey() {
+  const custom = ui.shape === 'custom' && customSpec ? cloneSpec(customSpec) : null;
+  return JSON.stringify({ shape: ui.shape, custom });
+}
+function noteShape() {
+  const key = shapeKey();
+  if (!historyArmed || historyLock) { lastShapeKey = key; return; }
+  if (key === lastShapeKey) return;
+  steps.push({
+    kind: 'form',
+    shape: ui.shape,
+    custom: ui.shape === 'custom' && customSpec ? cloneSpec(customSpec) : null,
+  });
+  lastShapeKey = key;
+  refreshUI();
+}
+function commitCoat(mark) {
+  if (!historyArmed || historyLock || mark < 0) return;
+  if (state.ops.length <= mark) return;
+  steps.push({ kind: 'coat', ops: state.ops.slice(mark).map(op => ({ ...op })) });
+  refreshUI();
+}
+function captureBaseline() {
+  baseline = {
+    shape: ui.shape,
+    custom: ui.shape === 'custom' && customSpec ? cloneSpec(customSpec) : null,
+    wax: state.waxFoot !== false,
+    ops: state.ops.map(op => ({ ...op })),
+  };
+  steps = [];
+  lastShapeKey = shapeKey();
+}
+function applyLoggedOp(op) {
+  const gi = GLAZE_INDEX[op.glaze];
+  if (op.op === 'stroke') state.beginStroke();
+  else if (op.op === 'dab' && Number.isInteger(gi)) state.dab(op.u, op.v, op.r, gi, op.t);
+  else if (op.op === 'pour' && Number.isInteger(gi)) state.pour(gi, op.h, op.mode, op.t);
+}
+function restoreForm(step, fresh) {
+  if (step.shape === 'custom' && step.custom) {
+    customSpec = cloneSpec(step.custom);
+    if (selectedNode >= customSpec.nodes.length) selectedNode = customSpec.nodes.length - 1;
+    ui.shape = 'custom';
+    applyBuiltPot(buildCustomPot(customSpec), { remap: !fresh, noFrame: true });
+  } else {
+    customSpec = null;
+    selectedNode = -1;
+    selectedHandle = -1;
+    ui.shape = step.shape || 'vase';
+    applyBuiltPot(buildPot(ui.shape), { noFrame: true });
+  }
+}
+function replayHistory() {
+  if (!baseline) return;
+  historyLock = true;
+  state._recording = false;
+  restoreForm(baseline, true);
+  state.waxFoot = baseline.wax !== false;
+  const ops = baseline.ops.map(op => ({ ...op }));
+  for (const op of ops) applyLoggedOp(op);
+  let stale = false;
+  for (const step of steps) {
+    if (step.kind === 'form') {
+      const clearing = step.shape !== 'custom';
+      restoreForm(step, false);
+      if (clearing) { ops.length = 0; stale = false; }
+      else if (ops.length) stale = true;
+    } else if (step.kind === 'clear') {
+      state.clear();
+      ops.length = 0;
+      stale = false;
+    } else if (step.kind === 'wax') {
+      state.waxFoot = !!step.on;
+    } else if (step.kind === 'coat') {
+      for (const op of step.ops) applyLoggedOp(op);
+      for (const op of step.ops) ops.push({ ...op });
+    }
+  }
+  state.ops = ops;
+  state.opsStale = stale;
+  state._recording = true;
+  historyLock = false;
+  lastShapeKey = shapeKey();
+  ui.simState = 'raw';
+  if (isMobileLayout() && ui.shape !== 'custom' && ui.touchMode === 'shape') {
+    ui.touchMode = 'paint';
+    ui.touchOrbit = false;
+    syncOrbitTouches();
+  }
+  $('wax').checked = state.waxFoot;
+  refreshUI();
+}
+function undoLast() {
+  if (ui.simState === 'firing') return;
+  if (!steps.length) { setStatus('Nothing to undo.'); return; }
+  if (ui.simState === 'fired') unfire();
+  const step = steps.pop();
+  replayHistory();
+  const word = { coat: 'coat', form: 'shape change', wax: 'wax change', clear: 'clear' }[step.kind] || 'step';
+  setStatus(step.kind === 'coat' && !state.ops.length ? `Undid the last coat. The pot is bare.` : `Undid the last ${word}.`);
+}
 
 let record = null;
 
@@ -815,6 +954,8 @@ async function applyRecipe(recipe) {
   if (!recipe || recipe.v !== 1) throw new Error('This link is not a pot record.');
   if (ui.simState === 'firing') return;
   if (ui.simState === 'fired') unfire();
+  historyLock = true;
+  try {
   state._recording = false;
   ui.cone = recipe.cone === 10 ? 10 : 6;
   setFireCone(ui.cone);
@@ -841,13 +982,39 @@ async function applyRecipe(recipe) {
   ui.simState = 'raw';
   refreshUI();
   if (recipe.fired && typeof recipe.seed === 'number') await fire(recipe.seed);
+  } finally {
+    historyLock = false;
+    if (ui.simState !== 'firing') {
+      captureBaseline();
+      refreshUI();
+    }
+  }
+}
+
+let socialList = null;
+
+function paintSocial() {
+  const row = $('socialRow');
+  if (!row) return;
+  if (peekUser() || !socialList?.length) { row.hidden = true; row.innerHTML = ''; return; }
+  row.hidden = false;
+  row.innerHTML = '';
+  for (const id of socialList) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = socialLabel(id);
+    b.title = `Sign in with ${socialLabel(id)}`;
+    b.onclick = () => { setStatus(`Opening ${socialLabel(id)}…`); socialSignIn(id); };
+    row.appendChild(b);
+  }
 }
 
 function paintCloud() {
   const user = peekUser();
-  $('cloudWho').textContent = user ? (user.email || 'Signed in') : 'Sign in to keep this pot.';
+  $('cloudWho').textContent = user ? (user.email || 'Signed in') : 'Sign in to save or share this pot.';
   $('signBtn').textContent = user ? 'Sign out' : 'Sign in';
   if (user) $('cloudForm').hidden = true;
+  paintSocial();
 }
 
 function esc(s) {
@@ -899,6 +1066,7 @@ async function keepPot(share) {
 
 async function bootCloud() {
   try { await restoreSession(); } catch (err) { setStatus(err.message || 'Sign-in link failed.'); }
+  try { socialList = await enabledSocial(); } catch { socialList = []; }
   paintCloud();
   if (peekUser()) { try { await fillPots(); } catch (err) { setStatus(err.message); } }
   const pot = new URLSearchParams(location.search).get('pot');
@@ -930,13 +1098,37 @@ for (const [fam, label] of FAMILIES) {
   }
 }
 document.querySelectorAll('#shapes button').forEach(b => b.onclick = () => ui.simState !== 'firing' && setShape(b.dataset.shape));
-document.querySelectorAll('#tools button').forEach(b => b.onclick = () => { ui.tool = b.dataset.tool; refreshUI(); });
-document.querySelectorAll('#pourMode button').forEach(b => b.onclick = () => { ui.pourMode = b.dataset.mode; refreshUI(); });
-$('thick').oninput = (e) => { thickness[ui.glaze] = +e.target.value; refreshUI(); };
+document.querySelectorAll('#tools button').forEach(b => b.onclick = () => {
+  ui.tool = b.dataset.tool;
+  refreshUI();
+  if (ui.simState === 'firing') return;
+  if (ui.simState !== 'raw') { setStatus('Painting is locked. Unfire to paint again.'); return; }
+  setStatus(ui.tool === 'pour'
+    ? 'Pour stops at the dip line. Cover below or above, then Pour.'
+    : 'Brush is on. Drag on the pot, then fire.');
+});
+document.querySelectorAll('#pourMode button').forEach(b => b.onclick = () => {
+  ui.pourMode = b.dataset.mode;
+  refreshUI();
+  if (ui.simState !== 'raw') return;
+  setStatus(ui.pourMode === 'above' ? 'Pour will cover above the dip line.' : 'Pour will cover below the dip line.');
+});
+$('thick').oninput = (e) => {
+  const layers = layersOf(+e.target.value);
+  thickness[ui.glaze] = amountOf(layers);
+  refreshUI();
+  const name = GLAZES[GLAZE_INDEX[ui.glaze]].name;
+  setStatus(layers === 1 ? `Next stroke lays 1 layer of ${name}.` : `Next stroke lays ${layers} layers of ${name}.`);
+};
 $('size').oninput = (e) => { ui.size = +e.target.value; refreshUI(); };
 $('pourH').oninput = (e) => { ui.pourH = +e.target.value; showPourRing(ui.pourH); refreshUI(); };
 $('pourBtn').onclick = () => ui.simState === 'raw' && doPour();
-$('wax').onchange = (e) => { state.waxFoot = e.target.checked; };
+$('wax').onchange = (e) => {
+  state.waxFoot = e.target.checked;
+  if (historyArmed && !historyLock) steps.push({ kind: 'wax', on: state.waxFoot });
+  refreshUI();
+  setStatus(e.target.checked ? 'Foot is waxed, so it stays bare clay.' : 'Wax is off. Glaze can cover the foot.');
+};
 $('signBtn').onclick = async () => {
   if (peekUser()) {
     await signOut();
@@ -948,7 +1140,10 @@ $('signBtn').onclick = async () => {
   }
   const form = $('cloudForm');
   form.hidden = !form.hidden;
-  if (!form.hidden) $('cloudEmail').focus();
+  if (!form.hidden) {
+    $('cloudEmail').focus();
+    setStatus('Enter your email. A sign-in link comes back to this browser.');
+  }
 };
 $('cloudForm').onsubmit = async (e) => {
   e.preventDefault();
@@ -980,12 +1175,22 @@ $('potList').onchange = async (e) => {
     setStatus(err.message || 'Could not open that pot.');
   }
 };
-$('fireBtn').onclick = () => fire(); $('unfireBtn').onclick = unfire; $('clearBtn').onclick = clearAll;
+$('fireBtn').onclick = () => fire(); $('unfireBtn').onclick = unfire; $('undoBtn').onclick = undoLast; $('clearBtn').onclick = clearAll;
+window.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.key !== 'z' || e.shiftKey) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  e.preventDefault();
+  undoLast();
+});
 document.querySelectorAll('#cone button').forEach(b => b.onclick = () => {
   if (ui.simState === 'firing') return;
   ui.cone = +b.dataset.cone;
   setFireCone(ui.cone);
   refreshUI();
+  const temp = ui.cone === 10 ? 1285 : 1222;
+  const next = ui.simState === 'fired' ? 'Unfire, then fire again to use it.' : 'Paint, then fire.';
+  setStatus(`Cone ${ui.cone}, about ${temp}°C. ${next}`);
 });
 
 document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => b.onclick = () => {
@@ -1231,19 +1436,48 @@ function applyLayout() {
 window.matchMedia(MOBILE_MQ).addEventListener('change', applyLayout);
 window.addEventListener('orientationchange', () => { setTimeout(applyLayout, 80); });
 
+function brushWord(v) {
+  if (v < 0.08) return 'fine';
+  if (v < 0.16) return 'medium';
+  if (v < 0.28) return 'broad';
+  return 'wide';
+}
 function refreshUI() {
-  document.querySelectorAll('#shapes button').forEach(b => b.classList.toggle('active', b.dataset.shape === ui.shape));
-  document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('active', b.dataset.tool === ui.tool));
-  document.querySelectorAll('#pourMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === ui.pourMode));
+  document.querySelectorAll('#shapes button').forEach(b => {
+    const on = b.dataset.shape === ui.shape;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#tools button').forEach(b => {
+    const on = b.dataset.tool === ui.tool;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#pourMode button').forEach(b => {
+    const on = b.dataset.mode === ui.pourMode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   document.querySelectorAll('.glaze').forEach(b => b.classList.toggle('active', b.dataset.glaze === ui.glaze));
   { const g = GLAZES[GLAZE_INDEX[ui.glaze]]; $('glazeNow').innerHTML = `<b>${g.name}</b>${g.src ? ' &middot; source: ' + g.src : g.like ? ' &middot; ' + g.like : ''} &middot; ${cone10Note(g.id)}`; }
-  $('thick').value = thickness[ui.glaze]; $('thickOut').textContent = thickness[ui.glaze].toFixed(2);
-  $('size').value = ui.size; $('sizeOut').textContent = ui.size.toFixed(2);
+  const layers = layersOf(thickness[ui.glaze]);
+  $('thick').value = layers; $('thickOut').textContent = layers === 1 ? '1 layer' : `${layers} layers`;
+  $('size').value = ui.size; $('sizeOut').textContent = brushWord(ui.size);
   $('pourH').value = ui.pourH; $('pourHOut').textContent = Math.round(ui.pourH * 100) + '%';
   $('brushOpts').hidden = ui.tool !== 'brush'; $('pourOpts').hidden = ui.tool !== 'pour';
-  $('fireBtn').disabled = ui.simState === 'firing'; $('unfireBtn').disabled = ui.simState !== 'fired'; $('clearBtn').disabled = ui.simState === 'firing';
+  const lockNote = $('toolLock');
+  if (lockNote) {
+    lockNote.hidden = ui.simState === 'raw';
+    lockNote.textContent = ui.simState === 'firing' ? 'Kiln is firing. Painting waits.' : 'Painting is locked. Unfire to paint again.';
+  }
+  $('fireBtn').disabled = ui.simState === 'firing'; $('unfireBtn').disabled = ui.simState !== 'fired'; $('undoBtn').disabled = ui.simState === 'firing' || !steps.length; $('clearBtn').disabled = ui.simState === 'firing';
+  $('wax').checked = state.waxFoot;
   $('pourBtn').disabled = ui.simState !== 'raw';
-  document.querySelectorAll('#cone button').forEach(b => b.classList.toggle('active', +b.dataset.cone === ui.cone));
+  document.querySelectorAll('#cone button').forEach(b => {
+    const on = +b.dataset.cone === ui.cone;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   document.querySelectorAll('.glaze').forEach(b => {
     const id = b.dataset.glaze, g = GLAZES[GLAZE_INDEX[id]], pal = ui.cone === 10 ? CONE10[id] : null;
     const mid = (pal?.fired || g.fired)[Math.min((pal?.fired || g.fired).length - 1, 3)];
@@ -1342,6 +1576,8 @@ resize();
 applyLayout();
 { const q = new URLSearchParams(location.search).get('seed'); if (q !== null && q !== '') state.fixedSeed = (+q) >>> 0; }
 setShape('vase');
+captureBaseline();
+historyArmed = true;
 refreshUI();
 loop();
 state.warm();
@@ -1354,13 +1590,17 @@ window.__sim = {
   setGlaze(id) { ui.glaze = id; refreshUI(); },
   setTool(t) { ui.tool = t; refreshUI(); },
   setThickness(v) { thickness[ui.glaze] = v; refreshUI(); },
+  undo: undoLast,
   setBrushSize(v) { ui.size = v; refreshUI(); },
   pour(id, h, mode = 'below', t) { if (id) ui.glaze = id; ui.pourH = h; ui.pourMode = mode; if (t) thickness[ui.glaze] = t; doPour(); refreshUI(); },
   // brush dabs in UV space along a horizontal band at a height fraction (outer wall)
   brushBand(id, hFrac, t, size = 0.12, angle0 = 0, angle1 = 360) {
-    ui.glaze = id; if (t) thickness[id] = t; ui.size = size; state.beginStroke();
+    ui.glaze = id; if (t) thickness[id] = t; ui.size = size;
+    const mark = state.ops.length;
+    state.beginStroke();
     const k = outerRow(hFrac); const v = (k + 0.5) / TEX_H;
     for (let a = angle0; a <= angle1; a += 1.5) state.dab(((a / 360) % 1 + 1) % 1, v, size, GLAZE_INDEX[id], thickness[id]);
+    commitCoat(mark);
     refreshUI();
   },
   setView(azDeg, elevDeg, distScale = 1) {

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Privacy policy — Glaze Kiln</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; background: #F5F1E8; color: #2148B8; font: 16px/1.5 Georgia, "Iowan Old Style", serif; }
+  main { max-width: 38rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  a { color: #18368F; }
+  h1 { font-weight: 400; font-size: 2.4rem; line-height: 0.95; margin: 0 0 0.4rem; }
+  h2 { font: 600 0.95rem/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; margin: 1.8rem 0 0.4rem; }
+  p, li { font: 15px/1.55 ui-sans-serif, system-ui, sans-serif; }
+  .back { font: 12px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.14em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<main>
+  <p class="back"><a href="./">Glaze Kiln</a></p>
+  <h1>Privacy policy</h1>
+  <p>This policy describes Glaze Kiln, the pottery glaze simulator at <a href="https://chilam1234.github.io/glaze-kiln-simulator/">https://chilam1234.github.io/glaze-kiln-simulator/</a>. It is operated by the owner of the GitHub account chilam1234. It was last updated on 1 October 2026.</p>
+
+  <h2>What the app does</h2>
+  <p>You paint glaze onto a pot in the browser and fire it to see a simulated result. Painting, firing, and the pictures stay on your device unless you choose to sign in and save.</p>
+
+  <h2>If you do not sign in</h2>
+  <p>The kiln does not create an account. The pot you are working on is not sent to a server. No Google account data is collected.</p>
+
+  <h2>If you sign in with Google</h2>
+  <p>Sign-in is handled by Supabase Auth using Google’s sign-in. Glaze Kiln asks Google only for the basic sign-in details: your email address, your name, and your profile picture if Google provides one, plus the account id Google assigns. Glaze Kiln does not ask for access to Gmail, Drive, contacts, or any other Google product.</p>
+  <p>Those details are used only to recognize your account so you can save a pot and open it later. Glaze Kiln’s use of information received from Google APIs follows the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. The data is not sold, not used for advertising, and not used to train models.</p>
+  <p>Supabase stores the sign-in record. A copy of the session, including the email address, is kept in this browser’s local storage under the key <code>kiln-session</code> so you stay signed in. Signing out removes that copy from the browser.</p>
+
+  <h2>Pots you save</h2>
+  <p>When you press Save, the pot recipe is stored in Supabase under your account. A recipe contains the shape, the glaze strokes, the cone, and whether the foot is waxed. It is private to your account. When you press Share, that one recipe becomes readable by anyone who has the link. Other pots stay private.</p>
+
+  <h2>Who else handles the data</h2>
+  <ul>
+    <li>Google, when you choose Google sign-in.</li>
+    <li>Supabase, which stores the sign-in record and any pot you save. The project address is <code>zafdbndpldvpojozwekd.supabase.co</code>.</li>
+    <li>GitHub Pages, which hosts this website.</li>
+  </ul>
+  <p>Glaze Kiln does not pass your Google account data to anyone else.</p>
+
+  <h2>How long it is kept</h2>
+  <p>The browser session lasts until you sign out or the sign-in expires. A saved pot remains until it is removed from the Supabase project. You can disconnect Glaze Kiln from your Google account in your Google Account permissions.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy can be sent through the GitHub project <a href="https://github.com/chilam1234/glaze-kiln-simulator">chilam1234/glaze-kiln-simulator</a>.</p>
+</main>
+</body>
+</html>
