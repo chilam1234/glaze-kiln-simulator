@@ -15,8 +15,11 @@ three.js r165 is vendored in `vendor/` and loaded through the import map in inde
 - `js/shape.js`: custom profile (quadratic nodes + bulges), extract-from-preset, capacity in ml.
 - `js/glazes.js`: glaze library (raw colour, fired colour/opacity/roughness stops by thickness, fluidity, crackle,
   speckle) and pair interactions (overlap colour and halo line).
+- `js/grid.js`: texture size shared by the pot and the kiln thread.
 - `js/sim.js`: UV-space state (a thickness map and a paint-order stamp map for each glaze), brush/pour, raw composition,
   firing (melt leveling, long-range 1D gravity redistribution, drips/runs, 2D sheet flow, fired composition).
+  `fire()` runs on a module worker (`js/fire-worker.js`) so the pot can still be orbited; the page thread is the fallback.
+  After a firing, `__sim.engine` is `"worker"` or `"page"`. Seed, cone, and `dripStats` stay the stable result.
 - `js/material.js`: MeshPhysicalMaterial patch with object-space Voronoi crackle, iron/carbon speckle, kiln glow.
 - `js/main.js`: scene (RoomEnvironment PMREM, soft shadow), UI, input, firing animation, `window.__sim` test hook.
 - `tests/verify.py`: headless-Chrome (SwiftShader) verification that writes `shots/`. `tests/lookdev.py`: scripted look-dev.
@@ -41,10 +44,9 @@ after every source change. `tests/verify_single.py` opens the file over file://,
 saves `shots/single-file-after.png`.
 
 ## UI palette
-The panel uses AMACO's brand colours, taken from amaco.com's theme.css and the home page's computed styles. They are
-defined as CSS variables at the top of `css/style.css`. Only colours are borrowed: no logo, images or remote fonts
-(system font stacks stand in for Metropolis, Young Serif and Barlow Condensed). The 3D background stays a neutral grey
-(#dcdfe2) so glaze colours read true. `tests/verify_amaco.py` checks the single file and writes `shots/amaco-*.png`.
+The chrome is a two-ink editorial log on pale beige paper (`#F5F1E8`): cobalt `#2148B8` for type, rules, and tools,
+terracotta `#C65F38` only on Fire. Glaze chips keep their real colours. No remote fonts (a system serif for the title,
+a system mono for the record). The pot sits on the same paper. `tests/verify_amaco.py` still writes `shots/amaco-*.png`.
 
 ## Glaze library (v3: 21 glazes)
 The picker groups glazes by family (Whites & neutrals, Blues & greens, Warm & bright, Dark & metallic) in a scrollable

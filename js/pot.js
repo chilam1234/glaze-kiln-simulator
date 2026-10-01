@@ -1,11 +1,10 @@
 // Pot shapes: profile curves -> custom lathe geometry with arc-length UVs, plus per-row geometric maps
 // (radius, height, normal, curvature-derived edge/cavity maps, gravity direction) used by painting and firing.
 import * as THREE from 'three';
+import { TEX_W, TEX_H } from './grid.js';
 import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js';
+export { TEX_W, TEX_H };
 export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld } from './shape.js';
-
-export const TEX_W = 1024;   // around the pot (u)
-export const TEX_H = 1024;   // along the profile, foot -> outer wall -> rim -> inner wall -> centre (v)
 
 const PROFILES = {
   cylinder() {

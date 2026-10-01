@@ -1,12 +1,13 @@
 // Glaze state stored in UV space: one thickness map + paint-order stamp map per glaze (so any number of glazes
 // can overlap per texel and we know which is on top). Painting, pouring, CPU firing simulation (leveling,
 // gravity flow with drips), and composition into the textures the shader samples.
-import { TEX_W, TEX_H } from './pot.js';
+import { TEX_W, TEX_H } from './grid.js';
 import { GLAZES, pairFor, CONE10 } from './glazes.js';
 import { fbm3, voronoi3 } from './noise.js';
 
 const W = TEX_W, H = TEX_H, N = W * H;
 const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+const q4 = (n) => Math.round(n * 1e4) / 1e4;
 const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 function hexLin(h) {
   const n = parseInt(h.slice(1), 16), c = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -75,17 +76,25 @@ const CLAY_F_A = hexLin('#6f5848'), CLAY_F_B = hexLin('#8c7461'), CLAY_F_DARK = 
 const CARBON = hexLin('#5f5751'), TEN_RUST = hexLin('#8a3b12'), TEN_FUR = hexLin('#5a2a10');
 
 export class GlazeState {
-  constructor() {
-    this.thick = GLAZES.map(() => new Float32Array(N));
-    this.stamp = GLAZES.map(() => new Uint16Array(N));
+  constructor(opts = {}) {
+    // host: the kiln thread. It receives maps per firing and never paints, so it skips the full atlas.
+    this.host = !!opts.host;
+    this.thick = this.host ? [] : GLAZES.map(() => new Float32Array(N));
+    this.stamp = this.host ? [] : GLAZES.map(() => new Uint16Array(N));
     this.fired = null;            // post-flow thickness arrays when fired
-    this.strokeBuf = new Float32Array(N);
+    this.strokeBuf = new Float32Array(this.host ? 0 : N);
     this.strokeId = 1;
     this.color = new Uint8Array(N * 4); this.props = new Uint8Array(N * 4); this.fx = new Uint8Array(N * 4); this.height = new Uint8Array(N * 4);
     this.mode = 'raw';
     this.waxFoot = true;
     this.onUpload = () => {};
+    this.engine = 'page';
+    this.ops = [];
+    this._recording = !this.host;
+    this.opsStale = false;
   }
+  // Start the kiln thread early so the first Fire does not pay for module load.
+  warm() { return this._ensureWorker().then(w => !!w); }
   setPot(pot, opts = {}) {
     const prev = this.pot;
     const prevThick = (opts.remap && prev) ? this.thick.map(a => Float32Array.from(a)) : null;
@@ -97,6 +106,7 @@ export class GlazeState {
       for (const a of this.stamp) a.fill(0);
       this._remapGlaze(prev, prevThick, prevStamp);
       this.fired = null; this.mode = 'raw';
+      this.opsStale = true;
       this.composeRaw(0, H - 1);
     } else if (opts.keepGlaze) {
       if (!opts.skipCompose) this.composeRaw(0, H - 1);
@@ -162,14 +172,19 @@ export class GlazeState {
     for (const a of this.thick) a.fill(0);
     for (const a of this.stamp) a.fill(0);
     this.fired = null; this.mode = 'raw'; this.strokeId = 1;
+    if (this._recording) { this.ops = []; this.opsStale = false; }
     this.composeRaw(0, H - 1);
   }
   stats() {
     return GLAZES.map((g, gi) => { let s = 0; const a = this.thick[gi]; for (let i = 0; i < N; i++) s += a[i]; return [g.id, +(s / N).toFixed(5)]; });
   }
   // ---------- painting ----------
-  beginStroke() { this.strokeBuf.fill(0); this.strokeId = (this.strokeId + 1) & 0xffff || 1; }
+  beginStroke(quiet) {
+    this.strokeBuf.fill(0); this.strokeId = (this.strokeId + 1) & 0xffff || 1;
+    if (this._recording && !quiet) this.ops.push({ op: 'stroke' });
+  }
   dab(u, v, radius, gi, amount) {
+    if (this._recording) this.ops.push({ op: 'dab', glaze: GLAZES[gi].id, u: q4(u), v: q4(v), r: q4(radius), t: q4(amount) });
     const R = this.pot.rows, ds = R.ds, kc = Math.min(H - 1, Math.floor(v * H)), sc = v * H;
     const kr = Math.ceil(radius / ds) + 1, T = this.thick[gi], S = this.stamp[gi], sb = this.strokeBuf;
     // stay inside the part that was hit: the thrown body's rows or the handle's rows
@@ -193,7 +208,8 @@ export class GlazeState {
     this.composeRaw(k0, k1);
   }
   pour(gi, h, mode, amount) {
-    this.beginStroke();
+    if (this._recording) this.ops.push({ op: 'pour', glaze: GLAZES[gi].id, h: q4(h), mode, t: q4(amount) });
+    this.beginStroke(true);
     const R = this.pot.rows, yh = h >= 0.99 ? this.pot.height + 0.2 : h <= 0.01 ? -0.2 : h * this.pot.height, T = this.thick[gi], S = this.stamp[gi];
     for (let k = 0; k < H; k++) {
       if ((this.waxFoot && R.wax[k]) || R.sep[k]) continue;
@@ -235,7 +251,137 @@ export class GlazeState {
     this.onUpload();
   }
   // ---------- firing ----------
+  // Page thread: hand the melt to the kiln worker and keep orbiting. The worker's own GlazeState
+  // is host=true and runs _fireInline, so this does not nest. If the thread cannot start (file://
+  // single file, or a crashed worker), the same function runs here.
   async fire(onProgress = () => {}, seed) {
+    if (this.host) return this._fireInline(onProgress, seed);
+    const worker = await this._ensureWorker();
+    if (worker) {
+      try {
+        await this._fireWorker(worker, onProgress, seed);
+        this.engine = 'worker';
+        return;
+      } catch (err) {
+        console.warn('kiln thread failed, firing on the page thread', err);
+        this._worker = null;
+        this._workerReady = null;
+      }
+    }
+    this.engine = 'page';
+    return this._fireInline(onProgress, seed);
+  }
+  _ensureWorker() {
+    if (this._workerReady) return this._workerReady;
+    this._workerReady = new Promise((resolve) => {
+      let worker;
+      try {
+        const href = new URL('./fire-worker.js', import.meta.url);
+        worker = new Worker(href, { type: 'module' });
+      } catch (err) {
+        resolve(null);
+        return;
+      }
+      let settled = false;
+      const finish = (w) => { if (settled) return; settled = true; clearTimeout(timer); resolve(w); };
+      const timer = setTimeout(() => { try { worker.terminate(); } catch (e) {} finish(null); }, 8000);
+      worker.onmessage = (ev) => {
+        if (ev.data && ev.data.type === 'ready') {
+          this._worker = worker;
+          worker.onmessage = null;
+          worker.onerror = null;
+          finish(worker);
+        }
+      };
+      worker.onerror = () => { try { worker.terminate(); } catch (e) {} finish(null); };
+    });
+    return this._workerReady;
+  }
+  _copyBuf(view) {
+    const copy = new view.constructor(view.length);
+    copy.set(view);
+    return copy;
+  }
+  _clonePlain(v) {
+    if (ArrayBuffer.isView(v)) return new v.constructor(v);
+    if (v && typeof v === 'object') {
+      const o = {};
+      for (const k of Object.keys(v)) o[k] = this._clonePlain(v[k]);
+      return o;
+    }
+    return v;
+  }
+  _packFire(seed) {
+    const active = [];
+    for (let q = 0; q < G.length; q++) {
+      let s = 0; const a = this.thick[q];
+      for (let i = 0; i < N; i += 7) s += a[i];
+      if (s > 0) active.push(q);
+    }
+    const transfers = [];
+    const take = (view) => { const c = this._copyBuf(view); transfers.push(c.buffer); return c.buffer; };
+    return {
+      transfers,
+      payload: {
+        type: 'fire',
+        cone: fireCone,
+        seed: seed === undefined ? null : seed,
+        fixedSeed: this.fixedSeed === undefined ? null : this.fixedSeed,
+        height: this.pot.height,
+        rows: this._clonePlain(this.pot.rows),
+        debugDrips: !!this.debugDrips,
+        debugThickness: !!this.debugThickness,
+        waxFoot: !!this.waxFoot,
+        active,
+        thickBufs: active.map(q => take(this.thick[q])),
+        stampBufs: active.map(q => take(this.stamp[q])),
+        nLow: take(this.nLow), nMid: take(this.nMid), nLow2: take(this.nLow2),
+        streak: take(this.streak), cellE: take(this.cellE), cellId: take(this.cellId),
+      },
+    };
+  }
+  _applyFire(msg) {
+    this.color = new Uint8Array(msg.color);
+    this.props = new Uint8Array(msg.props);
+    this.fx = new Uint8Array(msg.fx);
+    this.height = new Uint8Array(msg.height);
+    const fired = GLAZES.map(() => null);
+    msg.firedIndex.forEach((q, i) => { fired[q] = new Float32Array(msg.firedBufs[i]); });
+    const stp = GLAZES.map(() => null);
+    msg.stampIndex.forEach((q, i) => { stp[q] = new Uint16Array(msg.stampBufs[i]); });
+    this.fired = fired;
+    this.firedStamp = stp;
+    this.mode = 'fired';
+    this.seed = msg.seed;
+    this.dripStats = msg.dripStats;
+    this.fireMs = msg.fireMs;
+    this.composeMs = msg.composeMs;
+    this.onUpload();
+  }
+  _fireWorker(worker, onProgress, seed) {
+    const job = (this._job = (this._job || 0) + 1);
+    const packed = this._packFire(seed);
+    packed.payload.job = job;
+    return new Promise((resolve, reject) => {
+      const onMsg = (ev) => {
+        const d = ev.data;
+        if (!d || d.job !== job) return;
+        if (d.type === 'progress') { onProgress(d.p); return; }
+        cleanup();
+        if (d.type === 'done') { this._applyFire(d); resolve(); }
+        else reject(new Error(d.message || 'kiln thread failed'));
+      };
+      const onErr = () => { cleanup(); reject(new Error('kiln thread crashed')); };
+      const cleanup = () => {
+        worker.removeEventListener('message', onMsg);
+        worker.removeEventListener('error', onErr);
+      };
+      worker.addEventListener('message', onMsg);
+      worker.addEventListener('error', onErr);
+      worker.postMessage(packed.payload, packed.transfers);
+    });
+  }
+  async _fireInline(onProgress = () => {}, seed) {
     this._t0 = performance.now();
     this.seed = (seed ?? this.fixedSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
     const R = this.pot.rows;

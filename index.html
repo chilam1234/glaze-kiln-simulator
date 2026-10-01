@@ -15,7 +15,11 @@
 </head>
 <body>
 <aside id="panel">
-  <h1>Glaze Kiln <span>v3</span></h1>
+  <header class="mast">
+    <p class="kicker">Specimen log</p>
+    <h1>Kiln</h1>
+    <p class="folio" id="engineLine">Clay, then fire</p>
+  </header>
   <div id="mobileBar" class="mobile-bar">
     <div class="mobile-tabs" role="tablist" aria-label="Controls">
       <button type="button" role="tab" data-sheet="pot" aria-controls="sheet">Pot</button>
@@ -161,9 +165,24 @@
     </div>
   </section>
   <p id="status">Loading…</p>
+  <section class="cloud" id="cloud">
+    <h2>Record</h2>
+    <p class="hint" id="cloudWho">Sign in to keep this pot.</p>
+    <form class="cloud-form" id="cloudForm" hidden>
+      <input id="cloudEmail" type="email" autocomplete="email" required placeholder="email">
+      <button type="submit" id="cloudSend">Send link</button>
+    </form>
+    <select id="potList" hidden></select>
+    <div class="row">
+      <button type="button" id="saveBtn">Save</button>
+      <button type="button" id="shareBtn">Share</button>
+      <button type="button" id="signBtn">Sign in</button>
+    </div>
+  </section>
   <p class="credit">Glaze colors approximated from AMACO product photos. Not affiliated with AMACO.</p>
 </aside>
 <main id="view">
+  <p class="view-folio">The pot is the specimen</p>
   <div id="dimHud" hidden></div>
   <div id="shapeTools" hidden>
     <button type="button" id="nodeDelHud">Delete node</button>

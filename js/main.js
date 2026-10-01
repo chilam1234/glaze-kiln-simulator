@@ -4,6 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine } from './cloud.js';
 import { makePotMaterial } from './material.js';
 
 const view = document.getElementById('view');
@@ -37,7 +38,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 view.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#dcdfe2');
+scene.background = new THREE.Color('#F5F1E8');
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.85;
@@ -66,6 +67,16 @@ function dataTex(arr, srgb) {
 const state = new GlazeState();
 const tex = { color: dataTex(state.color, true), props: dataTex(state.props), fx: dataTex(state.fx), height: dataTex(state.height) };
 let dirty = false;
+// The kiln thread returns fresh maps. Point the textures at them, or the pot keeps the raw image
+// and later strokes never show.
+function uploadTextures() {
+  for (const k of Object.keys(tex)) {
+    const image = tex[k].image;
+    if (image.data !== state[k]) image.data = state[k];
+    tex[k].needsUpdate = true;
+  }
+  dirty = false;
+}
 state.onUpload = () => { dirty = true; };
 const material = makePotMaterial(tex);
 let pot = null, mesh = null, pickMesh = null;
@@ -774,6 +785,136 @@ async function fire(seed) {
 function unfire() { if (ui.simState !== 'fired') return; state.unfire(); ui.simState = 'raw'; refreshUI(); setStatus('Back to raw glaze. Keep painting.'); }
 function clearAll() { if (ui.simState === 'firing') return; state.clear(); ui.simState = 'raw'; refreshUI(); setStatus('Cleared.'); }
 
+let record = null;
+
+function currentRecipe() {
+  return {
+    v: 1,
+    shape: ui.shape,
+    custom: ui.shape === 'custom' && customSpec ? cloneSpec(customSpec) : null,
+    cone: ui.cone,
+    wax: state.waxFoot,
+    seed: state.seed ?? null,
+    fired: ui.simState === 'fired',
+    stale: !!state.opsStale,
+    ops: state.ops.slice(),
+  };
+}
+
+function potTitle() {
+  const g = GLAZES[GLAZE_INDEX[ui.glaze]];
+  return `${ui.shape} · ${g ? g.name : 'glaze'}`.slice(0, 80);
+}
+
+function remember(row) {
+  const me = peekUser();
+  record = me && row.owner === me.id ? { id: row.id, share_id: row.share_id } : null;
+}
+
+async function applyRecipe(recipe) {
+  if (!recipe || recipe.v !== 1) throw new Error('This link is not a pot record.');
+  if (ui.simState === 'firing') return;
+  if (ui.simState === 'fired') unfire();
+  state._recording = false;
+  ui.cone = recipe.cone === 10 ? 10 : 6;
+  setFireCone(ui.cone);
+  state.waxFoot = recipe.wax !== false;
+  $('wax').checked = state.waxFoot;
+  if (recipe.shape === 'custom' && recipe.custom) {
+    if (ui.shape !== 'custom') setShape('custom');
+    customSpec = recipe.custom;
+    rebuildCustom();
+  } else {
+    setShape(recipe.shape || 'vase');
+  }
+  state._recording = false;
+  state.clear();
+  for (const op of recipe.ops || []) {
+    const gi = GLAZE_INDEX[op.glaze];
+    if (op.op === 'stroke') state.beginStroke();
+    else if (op.op === 'dab' && Number.isInteger(gi)) state.dab(op.u, op.v, op.r, gi, op.t);
+    else if (op.op === 'pour' && Number.isInteger(gi)) state.pour(gi, op.h, op.mode, op.t);
+  }
+  state.ops = (recipe.ops || []).map(op => ({ ...op }));
+  state.opsStale = !!recipe.stale;
+  state._recording = true;
+  ui.simState = 'raw';
+  refreshUI();
+  if (recipe.fired && typeof recipe.seed === 'number') await fire(recipe.seed);
+}
+
+function paintCloud() {
+  const user = peekUser();
+  $('cloudWho').textContent = user ? (user.email || 'Signed in') : 'Sign in to keep this pot.';
+  $('signBtn').textContent = user ? 'Sign out' : 'Sign in';
+  if (user) $('cloudForm').hidden = true;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+async function fillPots() {
+  const sel = $('potList');
+  if (!peekUser()) { sel.hidden = true; sel.innerHTML = ''; return; }
+  const rows = await listMine();
+  if (!rows.length) { sel.hidden = true; sel.innerHTML = ''; return; }
+  sel.hidden = false;
+  sel.innerHTML = `<option value="">My pots</option>${rows.map(r => `<option value="${esc(r.id)}">${esc(r.title || 'Untitled')}</option>`).join('')}`;
+  if (record?.id) sel.value = record.id;
+}
+
+async function keepPot(share) {
+  if (ui.simState === 'firing') return;
+  if (!peekUser()) {
+    $('cloudForm').hidden = false;
+    $('cloudEmail').focus();
+    setStatus('Sign in first. A link comes to your email.');
+    return;
+  }
+  $('saveBtn').disabled = true;
+  $('shareBtn').disabled = true;
+  try {
+    setStatus(share ? 'Saving a share link…' : 'Saving…');
+    const row = await saveRecipe({ id: record?.id, title: potTitle(), recipe: currentRecipe() });
+    record = { id: row.id, share_id: row.share_id };
+    if (share) {
+      await publishRecipe(row.id);
+      const url = `${location.origin}${location.pathname}?pot=${row.share_id}`;
+      try { await navigator.clipboard.writeText(url); } catch { /* status still shows the link */ }
+      setStatus(`Share link copied. ${url}`);
+    } else if (state.opsStale) {
+      setStatus('Saved. A shape edit after painting may not match this picture exactly.');
+    } else {
+      setStatus('Saved.');
+    }
+    try { await fillPots(); } catch { /* the pot is saved even if the list fails */ }
+  } catch (err) {
+    setStatus(err.message || 'Could not save.');
+  } finally {
+    $('saveBtn').disabled = false;
+    $('shareBtn').disabled = false;
+  }
+}
+
+async function bootCloud() {
+  try { await restoreSession(); } catch (err) { setStatus(err.message || 'Sign-in link failed.'); }
+  paintCloud();
+  if (peekUser()) { try { await fillPots(); } catch (err) { setStatus(err.message); } }
+  const pot = new URLSearchParams(location.search).get('pot');
+  if (!pot) return;
+  try {
+    setStatus('Opening shared pot…');
+    const row = await loadShared(pot);
+    remember(row);
+    await applyRecipe(row.recipe);
+    if (ui.simState === 'raw') setStatus(row.title ? `Opened ${row.title}.` : 'Opened a shared pot.');
+    if (record) { try { await fillPots(); } catch { /* list is optional */ } }
+  } catch (err) {
+    setStatus(err.message || 'Could not open that pot.');
+  }
+}
+
 // ---------- UI wiring ----------
 const $ = (id) => document.getElementById(id);
 const gl = $('glazes');
@@ -796,6 +937,49 @@ $('size').oninput = (e) => { ui.size = +e.target.value; refreshUI(); };
 $('pourH').oninput = (e) => { ui.pourH = +e.target.value; showPourRing(ui.pourH); refreshUI(); };
 $('pourBtn').onclick = () => ui.simState === 'raw' && doPour();
 $('wax').onchange = (e) => { state.waxFoot = e.target.checked; };
+$('signBtn').onclick = async () => {
+  if (peekUser()) {
+    await signOut();
+    record = null;
+    paintCloud();
+    await fillPots();
+    setStatus('Signed out.');
+    return;
+  }
+  const form = $('cloudForm');
+  form.hidden = !form.hidden;
+  if (!form.hidden) $('cloudEmail').focus();
+};
+$('cloudForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $('cloudEmail').value.trim();
+  if (!email) return;
+  $('cloudSend').disabled = true;
+  setStatus('Sending a sign-in link…');
+  try {
+    await sendLink(email);
+    setStatus('Link sent. Open it in this browser.');
+  } catch (err) {
+    setStatus(err.message || 'Could not send the link.');
+  } finally {
+    $('cloudSend').disabled = false;
+  }
+};
+$('saveBtn').onclick = () => keepPot(false);
+$('shareBtn').onclick = () => keepPot(true);
+$('potList').onchange = async (e) => {
+  const id = e.target.value;
+  if (!id || ui.simState === 'firing') return;
+  try {
+    setStatus('Opening your pot…');
+    const row = await loadOwned(id);
+    remember(row);
+    await applyRecipe(row.recipe);
+    if (ui.simState === 'raw') setStatus(row.title ? `Opened ${row.title}.` : 'Opened your pot.');
+  } catch (err) {
+    setStatus(err.message || 'Could not open that pot.');
+  }
+};
 $('fireBtn').onclick = () => fire(); $('unfireBtn').onclick = unfire; $('clearBtn').onclick = clearAll;
 document.querySelectorAll('#cone button').forEach(b => b.onclick = () => {
   if (ui.simState === 'firing') return;
@@ -997,7 +1181,7 @@ function drawSection() {
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
   const ctx = cv.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#F5F1E8'; ctx.fillRect(0, 0, w, h);
   const R = pot.rows, pts = [];
   for (let k = 0; k < R.potRows; k++) pts.push([R.r[k], R.y[k]]);
   let maxR = 0.2, maxY = 0.2;
@@ -1008,16 +1192,16 @@ function drawSection() {
   ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
   for (const p of pts) ctx.lineTo(X(p[0]), Y(p[1]));
   ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
-  ctx.fillStyle = '#eef1f4'; ctx.fill(); ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.fillStyle = '#E7E3D6'; ctx.fill(); ctx.strokeStyle = '#2148B8'; ctx.lineWidth = 1.4; ctx.stroke();
   ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
   for (const p of pts) ctx.lineTo(X(-p[0]), Y(p[1]));
   ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
   ctx.fill(); ctx.stroke();
   ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(cx, Y(0)); ctx.lineTo(cx, Y(maxY)); ctx.strokeStyle = '#999'; ctx.stroke(); ctx.setLineDash([]);
   const d = customSpec ? dimsCm(customSpec) : { height: pot.height * UNIT_CM, rim: 0, foot: 0, wall: 0, ml: 0 };
-  ctx.fillStyle = '#074684'; ctx.font = '600 13px sans-serif';
-  ctx.fillText('POT SECTION', pad, 22);
-  ctx.fillStyle = '#525d7d'; ctx.font = '12px sans-serif';
+  ctx.fillStyle = '#2148B8'; ctx.font = '600 13px ui-monospace, monospace';
+  ctx.fillText('SECTION', pad, 22);
+  ctx.fillStyle = '#2148B8'; ctx.font = '12px ui-monospace, monospace';
   ctx.fillText(`H ${d.height.toFixed(1)} cm   rim Ø ${d.rim.toFixed(1)} cm   foot Ø ${d.foot.toFixed(1)} cm   ${Math.round(d.ml)} ml`, pad, 40);
   if (customSpec) {
     ctx.strokeStyle = '#c0391b'; ctx.lineWidth = 1;
@@ -1138,10 +1322,10 @@ if (window.visualViewport) {
   visualViewport.addEventListener('scroll', resize);
 }
 if (typeof ResizeObserver === 'function') new ResizeObserver(resize).observe(view);
-const glowCol = new THREE.Color(), BG = new THREE.Color('#dcdfe2'), BG_KILN = new THREE.Color('#2e2521');
+const glowCol = new THREE.Color(), BG = new THREE.Color('#F5F1E8'), BG_KILN = new THREE.Color('#101A3A');
 function loop() {
   requestAnimationFrame(loop);
-  if (dirty) { for (const t of Object.values(tex)) t.needsUpdate = true; dirty = false; }
+  if (dirty) uploadTextures();
   const g = glow.v;
   // kiln glow: lights dim, the pot glows red-orange -> yellow-orange at peak, then cools back
   glowCol.setRGB(1.0, 0.16 + 0.28 * g, 0.03 + 0.06 * g * g);
@@ -1160,6 +1344,8 @@ applyLayout();
 setShape('vase');
 refreshUI();
 loop();
+state.warm();
+bootCloud();
 
 // ---------- test / automation hook ----------
 window.__sim = {
@@ -1195,6 +1381,8 @@ window.__sim = {
     refreshUI();
   },
   setCone(n) { ui.cone = n === 10 ? 10 : 6; setFireCone(ui.cone); refreshUI(); },
+  recipe() { return currentRecipe(); },
+  loadRecipe(r) { return applyRecipe(r); },
   get cone() { return ui.cone; },
   get touchOrbit() { return ui.touchOrbit; },
   get touchMode() { return ui.touchMode; },
@@ -1377,6 +1565,21 @@ window.__sim = {
   frame() { frameCamera(); },
   get composeMs() { return state.composeMs; },
   get dripStats() { return state.dripStats; },
+  get engine() { return state.engine; },
+  // Bytes the pot will draw. `bound` is false when a firing swapped in new maps and the textures stayed on the old ones.
+  shown() {
+    const sum = (arr) => {
+      let s = 2166136261;
+      for (let i = 0; i < arr.length; i += 97) s = Math.imul(s ^ arr[i], 16777619);
+      return s >>> 0;
+    };
+    const maps = {};
+    for (const k of ['color', 'props', 'fx', 'height']) {
+      const data = tex[k].image.data;
+      maps[k] = { bound: data === state[k], sum: sum(data) };
+    }
+    return { engine: state.engine, mode: state.mode, maps, sim: { color: sum(state.color), props: sum(state.props), fx: sum(state.fx), height: sum(state.height) } };
+  },
   debugDrips(on) { state.debugDrips = on; },
   debugThickness(on) { state.debugThickness = on; if (state.mode === 'fired') state.composeFired(); },
   get glow() { return glow.v; },
