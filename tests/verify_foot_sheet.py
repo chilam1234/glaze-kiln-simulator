@@ -101,11 +101,21 @@ with sync_playwright() as pw:
     page.wait_for_timeout(300)
     page.evaluate('(s) => { __sim.setShape("custom"); __sim.setCustom(s); __sim.setShapeGroup("foot"); }', spec)
     page.wait_for_timeout(250)
+    page.evaluate('''() => {
+      const el = document.querySelector("#customOpts .shape-group[data-group=foot]");
+      if (el) el.scrollIntoView({ block: "start" });
+    }''')
+    page.wait_for_timeout(150)
 
     for style, shot in (('ring', 'foot-sliders-ring.png'), ('flat', 'foot-sliders-flat.png'),
                         ('pedestal', 'foot-sliders-pedestal.png')):
         page.evaluate('(st) => __sim.setCustom({ footStyle: st })', style)
         page.wait_for_timeout(200)
+        page.evaluate('''() => {
+          const el = document.getElementById("footH") || document.querySelector("#customOpts .shape-group[data-group=foot]");
+          if (el) el.scrollIntoView({ block: "start" });
+        }''')
+        page.wait_for_timeout(120)
         vis = page.evaluate(FOOT_JS)
         print(style, json.dumps(vis))
         expect_sliders(vis, style)
