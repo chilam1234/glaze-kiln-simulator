@@ -340,6 +340,46 @@ export class GlazeState {
   stats() {
     return GLAZES.map((g, gi) => { let s = 0; const a = this.thick[gi]; if (a) for (let i = 0; i < N; i++) s += a[i]; return [g.id, +(s / N).toFixed(5)]; });
   }
+  // Painted-texel mask for tests: no full-width bands, and glaze only near the given strokes.
+  paintMask(opts = {}) {
+    const threshold = opts.threshold == null ? 0.004 : opts.threshold;
+    const strokes = opts.strokes || [];
+    const slack = opts.slack == null ? 2.2 : opts.slack;
+    const R = this.pot && this.pot.rows;
+    let painted = 0, outside = 0, maxFrac = 0, bandRows = 0;
+    const rowHits = [];
+    for (let k = 0; k < H; k++) {
+      let n = 0, nOut = 0;
+      const rr = R ? Math.max(R.r[k], 1e-3) : 1;
+      const ds = R ? R.ds : 1;
+      for (let j = 0; j < W; j++) {
+        let tot = 0;
+        for (let q = 0; q < this.thick.length; q++) {
+          const a = this.thick[q]; if (a) tot += a[k * W + j];
+        }
+        if (tot <= threshold) continue;
+        n++;
+        painted++;
+        if (!strokes.length) continue;
+        const u = (j + 0.5) / W, v = (k + 0.5) / H;
+        let near = false;
+        for (const s of strokes) {
+          let du = u - s.u; du -= Math.round(du);
+          const dist = Math.hypot(Math.abs(du) * 2 * Math.PI * rr, Math.abs((k + 0.5) - s.v * H) * ds);
+          if (dist <= (s.r || 0.12) * slack) { near = true; break; }
+        }
+        if (!near) { outside++; nOut++; }
+      }
+      const frac = n / W;
+      if (frac > maxFrac) maxFrac = frac;
+      if (frac >= 0.85) bandRows++;
+      if (n) rowHits.push({ k, n, frac: +frac.toFixed(4), outside: nOut });
+    }
+    return {
+      painted, outside, bandRows, maxFrac: +maxFrac.toFixed(4),
+      rows: rowHits.length, live: this._live.length,
+    };
+  }
   // ---------- painting ----------
   beginStroke(quiet) {
     this.strokeBuf.fill(0); this.strokeId = (this.strokeId + 1) & 0xffff || 1;

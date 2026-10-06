@@ -123,8 +123,10 @@ let lastBuildMs = 0, fireWallMs = 0, previewing = false;
 let drawRequested = false, rafId = 0, measuring = false, frameProbing = false;
 let lastFrameProbe = null;
 const drawStats = { rafs: 0, drawn: 0, uploads: 0, uploadBytes: 0, shadows: 0, lastDt: 16, frames: [] };
-const _texBox = new THREE.Box2();
-const _texPos = new THREE.Vector2();
+// Packed row scratch for texSubImage2D. iOS Safari ignores UNPACK_SKIP_ROWS /
+// TypedArray byteOffset on the full 1024² atlas, which uploaded the wrong rows
+// as a sharp-edged band around the stroke.
+let _packScratch = new Uint8Array(0);
 const fancyMat = makePotMaterial(tex);
 const simpleMat = makeSimplePotMaterial(tex, true);
 let material = lite ? simpleMat : fancyMat;
@@ -261,19 +263,33 @@ function uploadOne(texture, k0, k1, forceFull) {
     return fullBytes;
   }
   texture.needsUpdate = false;
-  _texBox.min.set(0, k0);
-  _texBox.max.set(TEX_W, k1 + 1);
-  _texPos.set(0, k0);
-  renderer.copyTextureToTexture(texture, texture, _texBox, _texPos);
-  const bytes = rows * TEX_W * 4;
+  const n = rows * TEX_W * 4;
+  if (_packScratch.length < n) _packScratch = new Uint8Array(n);
+  _packScratch.set(texture.image.data.subarray(k0 * TEX_W * 4, (k1 + 1) * TEX_W * 4), 0);
+  const gl = renderer.getContext();
+  renderer.state.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, texture.unpackAlignment || 1);
+  if (gl.UNPACK_ROW_LENGTH != null) {
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+  }
+  const packed = _packScratch.length === n ? _packScratch : _packScratch.subarray(0, n);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, k0, TEX_W, rows, gl.RGBA, gl.UNSIGNED_BYTE, packed);
+  if (texture.generateMipmaps) gl.generateMipmap(gl.TEXTURE_2D);
+  renderer.state.unbindTexture();
+  const bytes = n;
   drawStats.uploadBytes += bytes;
   return bytes;
 }
-function uploadTextures(stroke) {
+function uploadTextures(stroke, opts = {}) {
   const k0 = state.lastComposeK0, k1 = state.lastComposeK1;
   const keys = stroke ? ['color'] : Object.keys(tex);
   const rows = (k1 >= k0) ? (k1 - k0 + 1) : TEX_H;
-  const forceFull = !stroke && rows >= TEX_H;
+  const forceFull = !!opts.full || (!stroke && rows >= TEX_H);
   for (const k of keys) {
     const t = tex[k];
     if (t.image.data !== state[k]) t.image.data = state[k];
@@ -1110,6 +1126,9 @@ const endStroke = (e) => {
   if (state.deferCompose) {
     state.deferCompose = false;
     state.flushCompose();
+    uploadTextures(false);
+  } else if (ui.simState === 'raw') {
+    // Color-only uploads while the pointer was down; push props/height too.
     uploadTextures(false);
   }
   requestDraw();
@@ -2487,6 +2506,7 @@ window.__sim = {
   setSection(on) { ui.section = !!on; refreshUI(); drawSection(); },
   get section() { return ui.section; },
   stats: () => state.stats(),
+  paintMask: (opts) => state.paintMask(opts || {}),
   setSeed(n) { state.fixedSeed = (n === null || n === undefined) ? undefined : n >>> 0; },   // stable seed for tests; null = random per firing
   get seed() { return state.seed; },
   get fireMs() { return state.fireMs; },
@@ -2598,6 +2618,16 @@ window.__sim = {
     state.beginStroke();
     state.dab(u, v, r, gi, amt);
     return { ms: +(performance.now() - t0).toFixed(2), firstMapMs: state._firstMapMs, liveMaps: state.mapStats().live };
+  },
+  strokeUV(hFrac, angleDeg, r) {
+    const k = outerRow(hFrac);
+    return { u: ((angleDeg / 360) % 1 + 1) % 1, v: (k + 0.5) / TEX_H, r: r == null ? ui.size : r };
+  },
+  // Mesh UV under a client-pixel hit — same coordinates dabFromHit uses.
+  hitUV(clientX, clientY) {
+    const h = hitAt(clientX, clientY);
+    if (!h || !h.uv) return null;
+    return { u: h.uv.x, v: h.uv.y, x: clientX, y: clientY };
   },
   // Bytes the pot will draw. `bound` is false when a firing swapped in new maps and the textures stayed on the old ones.
   shown() {
