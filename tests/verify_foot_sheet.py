@@ -135,8 +135,12 @@ with sync_playwright() as pw:
             if (el !== foot) el.style.display = "none";
           }
           const sheet = document.getElementById("sheet");
+          const panel = document.getElementById("panel");
+          sheet.style.maxHeight = "none";
+          sheet.style.overflow = "visible";
+          panel.style.overflow = "visible";
+          panel.style.maxHeight = "none";
           sheet.scrollTop = 0;
-          foot.scrollIntoView({ block: "start" });
         }''')
         page.wait_for_timeout(80)
         save(page, shot.replace('.png', '-view.png'))
@@ -144,6 +148,12 @@ with sync_playwright() as pw:
         page.evaluate('''() => {
           const foot = document.querySelector("#customOpts .shape-group[data-group=foot]");
           for (const el of foot.parentElement.children) el.style.display = "";
+          const sheet = document.getElementById("sheet");
+          const panel = document.getElementById("panel");
+          sheet.style.maxHeight = "";
+          sheet.style.overflow = "";
+          panel.style.overflow = "";
+          panel.style.maxHeight = "";
         }''')
 
     page.close()
