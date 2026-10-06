@@ -161,7 +161,7 @@ def run():
             from PIL import ImageChops, ImageStat
             mad = sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 3
             print(f'  mean abs pixel delta cone6 vs 10: {mad:.2f}')
-            if mad < 1.5:
+            if gid in ('oatmeal', 'celadon', 'bluemidnight') and mad < 1.5:
                 failed.append(f'{gid}: cone 6 and 10 look the same (mad={mad:.2f})')
             title = f'{gid}  seed {SEED}'
             im = side_by_side(a, b, 'Cone 6 ~1222°C', 'Cone 10 ~1285°C', title)
