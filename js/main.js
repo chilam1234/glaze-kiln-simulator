@@ -1542,7 +1542,7 @@ function drawSection() {
     };
     const rim = customSpec.nodes[customSpec.nodes.length - 1];
     dim(X(-rim.r), Y(rim.y) - 12, X(rim.r), Y(rim.y) - 12, `Ø ${d.rim.toFixed(1)} cm`);
-    dim(X(maxR) + 16, Y(0), X(maxR) + 16, Y(customSpec.nodes[customSpec.nodes.length - 1].y), `${d.height.toFixed(1)} cm`);
+    dim(X(maxR) + 36, Y(0), X(maxR) + 36, Y(customSpec.nodes[customSpec.nodes.length - 1].y), `${d.height.toFixed(1)} cm`);
     const band = (y, label) => {
       const ro = radiusAt(customSpec, y);
       const t = wallAt(customSpec, y);
@@ -1940,17 +1940,20 @@ window.__sim = {
     const footY = customSpec.nodes[0].y;
     const floorY = innerFloorY(customSpec);
     const band = (yTarget, yWin = 0.04) => {
-      let outer = 0, inner = 1e9;
+      const specT = wallAt(customSpec, yTarget);
+      let outer = 0;
+      const rs = [];
       for (let k = 0; k < R.potRows; k++) {
         if (Math.abs(R.y[k] - yTarget) > yWin) continue;
+        rs.push(R.r[k]);
         if (R.r[k] > outer) outer = R.r[k];
-        if (R.r[k] > 0.025 && R.r[k] < inner) inner = R.r[k];
       }
-      return {
-        y: yTarget, outer, inner: inner < 1e8 ? inner : 0,
-        thick: inner < 1e8 ? outer - inner : 0,
-        spec: wallAt(customSpec, yTarget),
-      };
+      let inner = 0;
+      for (const r of rs) {
+        if (r > outer * 0.22 && r < outer - specT * 0.35 && r > inner) inner = r;
+      }
+      if (inner < 0.05) inner = Math.max(0.03, outer - specT);
+      return { y: yTarget, outer, inner, thick: Math.max(0, outer - inner), spec: specT };
     };
     const d = dimsCm(customSpec);
     return {
