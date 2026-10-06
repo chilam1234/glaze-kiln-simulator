@@ -72,7 +72,9 @@ def dispatch_layers(page, n):
 
 
 def tap_layers(page, n, touch=False):
-    box = page.locator('#thick').bounding_box()
+    el = page.locator('#thick')
+    el.scroll_into_view_if_needed()
+    box = el.bounding_box()
     t = (n - 1) / 4
     x = box['x'] + box['width'] * (0.06 + 0.88 * t)
     y = box['y'] + box['height'] * 0.5
@@ -84,23 +86,18 @@ def tap_layers(page, n, touch=False):
 
 
 def drag_layers(page, a, b, touch=False):
-    box = page.locator('#thick').bounding_box()
+    el = page.locator('#thick')
+    el.scroll_into_view_if_needed()
+    box = el.bounding_box()
     def x_at(n):
         t = (n - 1) / 4
         return box['x'] + box['width'] * (0.06 + 0.88 * t)
     y = box['y'] + box['height'] * 0.5
     x0, x1 = x_at(a), x_at(b)
-    if touch:
-        page.touchscreen.tap(x0, y)
-        page.mouse.move(x0, y)
-        page.mouse.down()
-        page.mouse.move(x1, y, steps=12)
-        page.mouse.up()
-    else:
-        page.mouse.move(x0, y)
-        page.mouse.down()
-        page.mouse.move(x1, y, steps=12)
-        page.mouse.up()
+    page.mouse.move(x0, y)
+    page.mouse.down()
+    page.mouse.move(x1, y, steps=12)
+    page.mouse.up()
     page.wait_for_timeout(80)
 
 
@@ -142,6 +139,7 @@ def run_on(page, label, touch=False):
     expect_layers(page, 1, f'{label} dispatch 1 after 5')
     dispatch_layers(page, 3)
     expect_layers(page, 3, f'{label} dispatch 3')
+    save(page, f'layers-{label}.png')
 
     tap_layers(page, 5, touch=touch)
     expect_layers(page, 5, f'{label} tap 5')
@@ -171,8 +169,6 @@ def run_on(page, label, touch=False):
     expect_layers(page, 1, f'{label} back to oatmeal keeps 1')
     dispatch_layers(page, 4)
     expect_layers(page, 4, f'{label} oatmeal 1→4 after glaze switch')
-
-    save(page, f'layers-{label}.png')
 
 
 with sync_playwright() as pw:
