@@ -260,6 +260,7 @@ export function setFootStyle(spec, style) {
   if (!FOOT_STYLES[style]) style = 'ring';
   spec.footStyle = style;
   setFootH(spec, FOOT_STYLES[style].defaultH);
+  if (style === 'recessed' && spec.footCarve < 0.12) spec.footCarve = 0.14;
 }
 
 export function quadPoint(p0, c, p1, t) {

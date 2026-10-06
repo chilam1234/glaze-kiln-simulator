@@ -282,13 +282,13 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   /* Pot sheet in Shape/custom: sliders take most of the drawer, scrolling above the fire bar. */
   body:not(.sheet-collapsed)[data-sheet="pot"] #panel {
-    max-height: 72vh;
-    max-height: 72dvh;
+    max-height: 78vh;
+    max-height: 78dvh;
     overflow: hidden;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #view {
-    min-height: 28vh;
-    min-height: 28dvh;
+    min-height: 22vh;
+    min-height: 22dvh;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] .sheet {
     flex: 1 1 0%;
@@ -357,6 +357,17 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider input {
     min-height: 44px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="foot"].active {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 10px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="foot"] > :not(.slider) {
+    grid-column: 1 / -1;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="foot"] .slider {
+    margin: 8px 0 6px;
   }
   /* Five teapot sliders: two compact columns so Length/Opening stay above the fire bar. */
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts:not([hidden]) {
@@ -428,10 +439,15 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     font-size: 13px;
     padding: 4px 4px;
   }
-  body:not(.sheet-collapsed)[data-sheet="pot"] .credit { display: none; }
-  body:not(.sheet-collapsed)[data-sheet="pot"] .cloud h2,
-  body:not(.sheet-collapsed)[data-sheet="pot"] #cloudWho,
-  body:not(.sheet-collapsed)[data-sheet="pot"] #potList { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .credit,
+  body:not(.sheet-collapsed)[data-sheet="pot"] .cloud { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] button.fire,
+  body:not(.sheet-collapsed)[data-sheet="pot"] .actions .row button {
+    min-height: 40px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #cone button {
+    min-height: 40px;
+  }
   body:not(.sheet-collapsed)[data-sheet="pot"] #status {
     font-size: 11px;
     flex: 0 0 auto;

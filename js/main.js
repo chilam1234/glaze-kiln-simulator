@@ -632,7 +632,9 @@ function canShapeTouch() {
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
-controls.minDistance = 2; controls.maxDistance = 20; controls.maxPolarAngle = Math.PI * 0.62;
+controls.minDistance = 2; controls.maxDistance = 20;
+controls.minPolarAngle = 0.08;
+controls.maxPolarAngle = Math.PI * 0.92;
 syncOrbitTouches();
 
 renderer.domElement.addEventListener('pointerdown', (e) => {

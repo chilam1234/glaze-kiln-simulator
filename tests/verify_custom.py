@@ -592,7 +592,7 @@ def run():
             page.wait_for_timeout(280)
             save(page, f'custom-foot-{style}.png', full=False)
             if style in ('hidden', 'recessed'):
-                page.evaluate('__sim.setView(18, -52)')
+                page.evaluate('__sim.setView(25, -40, 0.85)')
                 page.wait_for_timeout(300)
                 save(page, f'custom-foot-{style}-under.png', full=False)
 
