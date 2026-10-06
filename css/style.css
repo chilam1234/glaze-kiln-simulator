@@ -282,13 +282,18 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   /* Pot sheet in Shape/custom: sliders take most of the drawer, scrolling above the fire bar. */
   body:not(.sheet-collapsed)[data-sheet="pot"] #panel {
-    max-height: 78vh;
-    max-height: 78dvh;
+    max-height: none;
+    flex: 1 1 auto;
     overflow: hidden;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #view {
-    min-height: 22vh;
-    min-height: 22dvh;
+    flex: 0 0 22vh;
+    flex-basis: 22dvh;
+    height: 22vh;
+    height: 22dvh;
+    min-height: 0;
+    max-height: 22vh;
+    max-height: 22dvh;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] .sheet {
     flex: 1 1 0%;
