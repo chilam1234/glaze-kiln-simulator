@@ -44,20 +44,18 @@ def collect(page, bucket):
 
 def check_errors(label, bucket):
     global fail
-    allow = ('CONTEXT_LOST', 'Context Lost', 'context lost', 'WebGL: invalid', 'GL_INVALID')
-    noise = [e for e in bucket if not any(a.lower() in e.lower() for a in allow)] if label == 'context-loss' else list(bucket)
-    if label != 'context-loss':
-        noise = [e for e in bucket]
-    print(label, 'CONSOLE ERRORS:', noise or 'none')
+    print(label, 'CONSOLE ERRORS:', bucket or 'none')
     pageerrors = [e for e in bucket if e.startswith('pageerror:')]
     if label == 'context-loss':
-        pageerrors = [e for e in pageerrors if 'context' not in e.lower()]
-        print(label, 'filtered console:', noise or 'none')
+        allow = ('CONTEXT_LOST', 'Context Lost', 'context lost')
+        unexpected = [e for e in bucket if not any(a.lower() in e.lower() for a in allow)]
+        pageerrors = [e for e in pageerrors if not any(a.lower() in e.lower() for a in allow)]
+        print(label, 'unexpected:', unexpected or 'none')
         if pageerrors:
             fail = True
             print('FAIL: uncaught pageerror in', label, pageerrors)
         return
-    if noise:
+    if bucket:
         fail = True
         print('FAIL: unexpected errors in', label)
 
@@ -138,14 +136,20 @@ with sync_playwright() as pw:
       __sim.loseContext();
       return { lost: __sim.contextLost, state: __sim.state };
     }''')
+    print('lost-immediate', lost)
+    page.wait_for_function('__sim.contextLost === true', timeout=10000)
+    lost = page.evaluate('() => ({ lost: __sim.contextLost, state: __sim.state })')
     print('lost', lost)
     page.wait_for_timeout(400)
+    if not lost.get('lost'):
+        print('FAIL: contextLost should be true after loseContext'); fail = True
     save(page, 'webgl-context-lost.png')
     page.evaluate('__sim.restoreContext()')
+    page.wait_for_function('__sim.contextLost === false', timeout=10000)
     page.wait_for_timeout(800)
     restored = page.evaluate('() => ({ lost: __sim.contextLost, state: __sim.state, gpu: __sim.gpu })')
     print('restored', restored)
-    if restored['state'] != 'raw':
+    if restored['state'] != 'raw' or restored['lost']:
         print('FAIL: restore should leave the pot usable'); fail = True
     save(page, 'webgl-context-restored.png')
     check_errors('context-loss', err)

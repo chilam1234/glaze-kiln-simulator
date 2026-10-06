@@ -104,7 +104,7 @@ const state = new GlazeState();
 const tex = { color: dataTex(state.color, true), props: dataTex(state.props), fx: dataTex(state.fx), height: dataTex(state.height) };
 let dirty = false;
 let lastBuildMs = 0, fireWallMs = 0, previewing = false;
-const ctxLost = bindContextEvents(renderer.domElement, {
+const ctxLost = bindContextEvents(renderer.domElement, renderer.getContext(), {
   onLost() { setStatus('Graphics paused — restoring…'); },
   onRestored() { uploadTextures(); resize(); setStatus('Graphics restored.'); },
 });
@@ -222,6 +222,7 @@ function showingGizmos() {
 function rebuildCustom(opts = {}) {
   if (!customSpec) return;
   if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return; }
+  const t0 = performance.now();
   applyBuiltPot(buildCustomPot(customSpec, { preview: !!opts.preview }), {
     preview: !!opts.preview,
     skipNoise: !!opts.preview,
@@ -231,6 +232,7 @@ function rebuildCustom(opts = {}) {
     noFrame: true,
     skipUi: !!opts.skipUi,
   });
+  lastBuildMs = performance.now() - t0;
   if (!opts.preview) {
     ensureGripsInView();
     noteShape();

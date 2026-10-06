@@ -177,8 +177,9 @@ export function showReducedNote(view) {
   el.textContent = 'Software graphics. Quality is reduced so the kiln still runs.';
 }
 
-export function bindContextEvents(canvas, hooks) {
+export function bindContextEvents(canvas, gl, hooks) {
   let lost = false;
+  const ext = gl && gl.getExtension('WEBGL_lose_context');
   canvas.addEventListener('webglcontextlost', (e) => {
     e.preventDefault();
     lost = true;
@@ -190,15 +191,7 @@ export function bindContextEvents(canvas, hooks) {
   });
   return {
     get lost() { return lost; },
-    lose() {
-      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-      const ext = gl && gl.getExtension('WEBGL_lose_context');
-      if (ext) ext.loseContext();
-    },
-    restore() {
-      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-      const ext = gl && gl.getExtension('WEBGL_lose_context');
-      if (ext) ext.restoreContext();
-    },
+    lose() { if (ext) ext.loseContext(); },
+    restore() { if (ext) ext.restoreContext(); },
   };
 }
