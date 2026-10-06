@@ -8,8 +8,6 @@ import { GlazeState, setFireCone } from './sim.js';
 const N = TEX_W * TEX_H;
 const NG = GLAZES.length;
 const kiln = new GlazeState({ host: true });
-const zeroT = new Float32Array(N);
-const zeroS = new Uint16Array(N);
 
 self.postMessage({ type: 'ready' });
 
@@ -21,7 +19,6 @@ self.onmessage = async (ev) => {
     setFireCone(m.cone);
     const thick = new Array(NG);
     const stamp = new Array(NG);
-    for (let q = 0; q < NG; q++) { thick[q] = zeroT; stamp[q] = zeroS; }
     for (let i = 0; i < m.active.length; i++) {
       const q = m.active[i];
       thick[q] = new Float32Array(m.thickBufs[i]);
@@ -29,6 +26,7 @@ self.onmessage = async (ev) => {
     }
     kiln.thick = thick;
     kiln.stamp = stamp;
+    kiln._live = m.active.slice();
     kiln.nLow = new Float32Array(m.nLow);
     kiln.nMid = new Float32Array(m.nMid);
     kiln.nLow2 = new Float32Array(m.nLow2);
@@ -72,6 +70,10 @@ self.onmessage = async (ev) => {
     kiln.height = new Uint8Array(N * 4);
     kiln.fired = null;
     kiln.firedStamp = null;
+    kiln.thick = [];
+    kiln.stamp = [];
+    kiln._live = [];
+    kiln.nLow = kiln.nMid = kiln.nLow2 = kiln.streak = kiln.cellE = kiln.cellId = null;
   } catch (err) {
     self.postMessage({ type: 'error', job, message: String(err && err.stack || err) });
   }

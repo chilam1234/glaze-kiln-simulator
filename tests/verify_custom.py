@@ -1212,6 +1212,9 @@ def run():
         m.wait_for_timeout(200)
         save(m, 'custom-mobile-pot-tab.png', viewport=True)
 
+        m.evaluate('__sim.setShapeGroup("foot")')
+        m.evaluate('__sim.setSheet("pot", false)')
+        m.wait_for_timeout(200)
         for style in FOOT_STYLES:
             info = apply_foot(m, style)
             check_foot(info, style, failed, 'mobile')
@@ -1258,6 +1261,7 @@ def run():
 
         m.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
         m.evaluate('__sim.setShapeGroup("pot")')
+        m.evaluate('__sim.setTouchMode("shape")')
         m.evaluate('__sim.setSheet("pot", true)')
         m.evaluate('__sim.setView(20, 16)')
         m.wait_for_timeout(400)
