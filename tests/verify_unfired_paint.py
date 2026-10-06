@@ -1,5 +1,6 @@
 """Unfired brush strokes must not leave a full-width band around the pot.
-Uses real pointer painting (dirty-row GPU upload) on WebKit iPhone 13 and Chromium.
+Uses real pointer painting on WebKit iPhone 13 and Chromium.
+Runs twice per browser: full-texture upload (default) and packed region upload.
 Writes shots/unfired-paint-*.png
 """
 import json, os, shutil, sys, threading
@@ -61,13 +62,14 @@ def paint_stroke(page, pts):
     page.wait_for_timeout(120)
 
 
-def setup(page):
+def setup(page, region=False):
     page.wait_for_function('window.__sim && window.__sim.state === "raw"', timeout=120000)
-    page.evaluate('''() => {
+    info = page.evaluate('''(region) => {
+      __sim.setRegionUpload(!!region);
       __sim.setQuality("high");
       __sim.clear();
       __sim.setShape("vase");
-      __sim.setCone(10);
+      __sim.setCone(6);
       __sim.setTool("brush");
       __sim.setTouchMode("paint");
       __sim.setGlaze("oatmeal");
@@ -75,8 +77,20 @@ def setup(page):
       __sim.setThickness(0.7);
       __sim.setView(20, 12);
       __sim.setSheet("glaze", true);
-    }''')
+      const el = document.getElementById("buildStamp");
+      return {
+        build: __sim.build,
+        buildTime: __sim.buildTime,
+        mode: __sim.uploadMode,
+        stamp: el ? el.textContent : '',
+      };
+    }''', region)
+    print('build', info)
+    check(bool(info and info.get('build')), f'build stamp is set ({info})')
+    check(info.get('mode') == ('region' if region else 'full'), f'upload mode {info.get("mode")} (region={region})')
+    check(info.get('stamp') and info['build'] in info['stamp'], f'Menu shows build stamp ({info.get("stamp")})')
     page.wait_for_timeout(250)
+    return info
 
 
 def screen_pt(page, h, a):
@@ -132,11 +146,14 @@ def lum(rgb):
     return 0.30 * rgb[0] + 0.59 * rgb[1] + 0.11 * rgb[2]
 
 
-def run_on(page, label):
-    setup(page)
+def chroma(rgb):
+    return max(rgb) - min(rgb)
+
+
+def run_on(page, label, region=False):
+    setup(page, region=region)
     clay = sample_view(page, 0.55, 70)
     strokes = paint_smiley(page)
-    # first-time glaze + switch mid-session
     page.evaluate('__sim.setGlaze("tenmoku"); __sim.setBrushSize(0.08)')
     p = screen_pt(page, 0.55, 38)
     p2 = (p[0] + 16, p[1] + 6)
@@ -149,7 +166,7 @@ def run_on(page, label):
     page.wait_for_timeout(250)
 
     mask = page.evaluate('(s) => __sim.paintMask({ strokes: s, slack: 2.4 })', strokes)
-    print(label, 'mask', json.dumps(mask), 'strokes', len(strokes))
+    print(label, 'mask', json.dumps(mask), 'strokes', len(strokes), 'mode', page.evaluate('() => __sim.uploadMode'))
     check(len(strokes) >= 8, f'{label}: recorded hit UVs for the smiley ({len(strokes)})')
     check(mask['painted'] > 80, f'{label}: strokes actually painted ({mask["painted"]} texels)')
     check(mask['bandRows'] == 0, f'{label}: no full-width band rows (got {mask["bandRows"]}, maxFrac={mask["maxFrac"]})')
@@ -160,23 +177,33 @@ def run_on(page, label):
     front = sample_view(page, 0.46, 0)
     left = sample_view(page, 0.55, -80)
     right = sample_view(page, 0.55, 80)
-    print(label, 'pixels', {'clay': clay, 'front': front, 'left': left, 'right': right})
+    ten = sample_view(page, 0.55, 38)
+    print(label, 'pixels', {'clay': clay, 'front': front, 'left': left, 'right': right, 'tenmoku': ten})
     check(lum(front) > lum(clay) + 8, f'{label}: front mouth is lighter unfired oatmeal, not missing')
-    # A wrap-around oatmeal band would lighten both silhouette limbs toward the front stroke.
+    check(lum(front) > 180, f'{label}: oatmeal stays pale unfired, not a dark fired blob ({front})')
+    check(front[0] > front[2] + 4, f'{label}: oatmeal is warm raw beige, not grey ({front})')
     check(lum(left) < lum(front) - 6, f'{label}: left limb is not the oatmeal stroke {left} vs front {front}')
     check(lum(right) < lum(front) - 6, f'{label}: right limb is not the oatmeal stroke {right} vs front {front}')
+    check(lum(ten) < lum(clay) - 6, f'{label}: tenmoku dab is darker than clay ({ten} vs {clay})')
+    check(lum(ten) > 55, f'{label}: tenmoku dab is raw brown, not a fired-black specular blob ({ten})')
+    check(chroma(ten) > 6, f'{label}: tenmoku dab is not a flat translucent grey ({ten})')
     return mask
 
 
+def run_browser(page, label):
+    run_on(page, f'{label}-full', region=False)
+    page.reload(timeout=120000)
+    run_on(page, f'{label}-region', region=True)
+
+
 with sync_playwright() as pw:
-    # WebKit ≈ iPhone Safari
     try:
         wk = pw.webkit.launch(headless=True)
         ctx = wk.new_context(**pw.devices['iPhone 13'])
         page = ctx.new_page()
         page.on('pageerror', lambda e: errors.append(f'webkit: {e}'))
         page.goto(url, timeout=120000)
-        run_on(page, 'webkit-iphone')
+        run_browser(page, 'webkit-iphone')
         wk.close()
     except Exception as e:
         check(False, f'webkit run failed: {e}')
@@ -186,12 +213,12 @@ with sync_playwright() as pw:
     page = ctx.new_page()
     page.on('pageerror', lambda e: errors.append(f'chromium: {e}'))
     page.goto(url, timeout=120000)
-    run_on(page, 'chromium-iphone')
+    run_browser(page, 'chromium-iphone')
 
     desk = browser.new_page(viewport={'width': 1280, 'height': 800})
     desk.on('pageerror', lambda e: errors.append(f'desktop: {e}'))
     desk.goto(url, timeout=120000)
-    run_on(desk, 'chromium-desktop')
+    run_browser(desk, 'chromium-desktop')
     browser.close()
 
 httpd.shutdown()

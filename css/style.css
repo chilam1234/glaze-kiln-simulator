@@ -59,6 +59,7 @@ body { display: flex; }
 .kicker { margin: 0 0 10px; font: 11px/1 var(--font-body); letter-spacing: .18em; text-transform: uppercase; color: var(--ink); }
 h1 { font: 400 48px/0.86 var(--font-display); color: var(--ink); margin: 0; letter-spacing: -0.03em; }
 .folio { margin: 12px 0 0; max-width: 16em; font: 11px/1.45 var(--font-body); color: var(--text-muted); }
+.build-stamp { margin: 8px 0 0; font: 9px/1.35 var(--font-mono, ui-monospace, Menlo, Consolas, monospace); color: var(--text-muted); letter-spacing: 0.02em; }
 h2 { font: 500 11px var(--font-body); text-transform: uppercase; letter-spacing: .16em; color: var(--ink); margin: 16px 0 8px; }
 section { border-bottom: 1px solid var(--panel-border); padding-bottom: 8px; }
 .row { display: flex; gap: 6px; margin: 4px 0; }
@@ -264,6 +265,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     flex: none;
     flex-wrap: wrap;
   }
+  .build-stamp { flex: none; margin: 0 0 4px; }
   .fold-btn { flex: 1 0 100%; min-height: 40px; margin: 0; }
   .mobile-tabs {
     display: flex;

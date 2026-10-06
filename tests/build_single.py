@@ -14,8 +14,8 @@ js = js.replace('</script', '<\\/script')   # never close the inline tag early
 css = open(os.path.join(ROOT, 'css/style.css'), encoding='utf-8').read()
 html = open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read()
 html = re.sub(r'<script type="importmap">.*?</script>\s*', '', html, flags=re.S)
-html = html.replace('<link rel="stylesheet" href="css/style.css">', '<style>\n' + css + '\n</style>')
-html = html.replace('<script type="module" src="js/main.js"></script>', '<script>\n' + js + '\n</script>')
+html = re.sub(r'<link rel="stylesheet" href="css/style.css(?:\?v=[^"]*)?">', lambda _m: '<style>\n' + css + '\n</style>', html)
+html = re.sub(r'<script type="module" src="js/main.js(?:\?v=[^"]*)?"></script>', lambda _m: '<script>\n' + js + '\n</script>', html)
 assert 'src="js/' not in html and 'href="css/' not in html and 'importmap' not in html
 os.makedirs(os.path.join(ROOT, 'dist'), exist_ok=True)
 out = os.path.join(ROOT, 'dist/glaze-kiln.html')
