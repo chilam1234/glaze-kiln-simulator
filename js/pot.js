@@ -170,9 +170,9 @@ export function buildCustomPot(spec, opts) {
 
 function finishPot(kind, def, opts = {}) {
   const preview = !!opts.preview;
-  const nRaw = preview ? 900 : 4000;
-  const nDense = preview ? 1600 : 6000;
-  const raw = def.path.getSpacedPoints(nRaw).map(p => [p.x, p.y]);
+  const nRaw = preview ? 240 : 4000;
+  const nDense = preview ? 400 : 6000;
+  const raw = (preview ? def.path.getPoints(nRaw) : def.path.getSpacedPoints(nRaw)).map(p => [p.x, p.y]);
   let { pts: dense } = resample(raw, nRaw);
   // throwing ridges on near-vertical walls
   if (def.ridges > 0 && !preview) {
@@ -232,7 +232,9 @@ function finishPot(kind, def, opts = {}) {
     kap[k] = d / span + 0.2 * nr[k] / Math.max(r[k], 0.25);
   }
   const kpot = kap.subarray(0, Hp);
-  const kEdge = gaussBlur1D(kpot, 0.018 / ds), kCav = gaussBlur1D(kpot, 0.03 / ds), kWide = gaussBlur1D(kpot, 0.08 / ds);
+  const kEdge = preview ? kpot : gaussBlur1D(kpot, 0.018 / ds);
+  const kCav = preview ? kpot : gaussBlur1D(kpot, 0.03 / ds);
+  const kWide = preview ? kpot : gaussBlur1D(kpot, 0.08 / ds);
   const edge = new Float32Array(H), cavity = new Float32Array(H), dir = new Int8Array(H), steep = new Float32Array(H), w = new Float32Array(H), wax = new Uint8Array(H), sep = new Uint8Array(H);
   for (let k = 0; k < Hp; k++) {
     edge[k] = smooth(3.0, 14.0, kEdge[k]);
@@ -245,36 +247,38 @@ function finishPot(kind, def, opts = {}) {
     wax[k] = y[k] < def.waxY ? 1 : 0;
   }
   let handleFrom = H, handleTo = H, spoutFrom = H, spoutTo = H;
-  const frame = extras.length ? { cx: new Float32Array(H), cy: new Float32Array(H), cz: new Float32Array(H), nx: new Float32Array(H), ny: new Float32Array(H), nz: new Float32Array(H), bx: new Float32Array(H), by: new Float32Array(H), bz: new Float32Array(H), from: ranges[0].start } : null;
+  const frame = (!preview && extras.length) ? { cx: new Float32Array(H), cy: new Float32Array(H), cz: new Float32Array(H), nx: new Float32Array(H), ny: new Float32Array(H), nz: new Float32Array(H), bx: new Float32Array(H), by: new Float32Array(H), bz: new Float32Array(H), from: ranges[0].start } : null;
   let sepAt = Hp;
   for (const rg of ranges) {
     for (let k = sepAt; k < rg.start; k++) { wax[k] = 1; sep[k] = 1; r[k] = 0.05; y[k] = def.height; w[k] = 0.05; }
     const hd = rg.extra, Hh = Math.max(1, rg.end - rg.start);
-    const Bv = extraBinormal(hd);
     if (hd.kind === 'handle') { handleFrom = rg.start; handleTo = rg.end; }
     if (hd.kind === 'spout') { spoutFrom = rg.start; spoutTo = rg.end; }
-    for (let k = rg.start; k < rg.end; k++) {
-      const t = (k - rg.start + 0.5) / Hh;
-      const tt = Math.min(1, Math.max(0, t));
-      const c = hd.curve.getPointAt(tt), T = hd.curve.getTangentAt(tt), Nn = new THREE.Vector3().crossVectors(T, Bv).normalize();
-      const rad = extraRadius(hd, tt);
-      r[k] = rad; y[k] = c.y; w[k] = rad;
-      frame.cx[k] = c.x; frame.cy[k] = c.y; frame.cz[k] = c.z; frame.nx[k] = Nn.x; frame.ny[k] = Nn.y; frame.nz[k] = Nn.z; frame.bx[k] = Bv.x; frame.by[k] = Bv.y; frame.bz[k] = Bv.z;
-      nr[k] = 0; ny[k] = 0; kap[k] = 0;
-      steep[k] = Math.min(1, Math.abs(T.y)); dir[k] = T.y > 1e-3 ? -1 : (T.y < -1e-3 ? 1 : 0);
-      edge[k] = 0.3; const end = Math.min(tt, 1 - tt); cavity[k] = 0.7 * (1 - smooth(0.02, 0.09, end));
+    if (!preview) {
+      const Bv = extraBinormal(hd);
+      for (let k = rg.start; k < rg.end; k++) {
+        const t = (k - rg.start + 0.5) / Hh;
+        const tt = Math.min(1, Math.max(0, t));
+        const c = hd.curve.getPointAt(tt), T = hd.curve.getTangentAt(tt), Nn = new THREE.Vector3().crossVectors(T, Bv).normalize();
+        const rad = extraRadius(hd, tt);
+        r[k] = rad; y[k] = c.y; w[k] = rad;
+        frame.cx[k] = c.x; frame.cy[k] = c.y; frame.cz[k] = c.z; frame.nx[k] = Nn.x; frame.ny[k] = Nn.y; frame.nz[k] = Nn.z; frame.bx[k] = Bv.x; frame.by[k] = Bv.y; frame.bz[k] = Bv.z;
+        nr[k] = 0; ny[k] = 0; kap[k] = 0;
+        steep[k] = Math.min(1, Math.abs(T.y)); dir[k] = T.y > 1e-3 ? -1 : (T.y < -1e-3 ? 1 : 0);
+        edge[k] = 0.3; const end = Math.min(tt, 1 - tt); cavity[k] = 0.7 * (1 - smooth(0.02, 0.09, end));
+      }
     }
     sepAt = rg.end;
   }
   const rows = { r, y, nr, ny, edge, cavity, dir, steep, w, wax, sep, ds, L, kap, potRows: Hp, handleFrom, handleTo, spoutFrom, spoutTo, frame };
 
   const vs = Hp / H;
-  const latheN = preview ? 180 : 480, latheS = preview ? 72 : 192;
-  const lathe = makeLathe(dense, latheN, latheS, vs, def), latheLo = makeLathe(dense, 200, 72, vs, def);
-  let geo = lathe, pickGeometry = latheLo;
+  const latheN = preview ? 48 : 480, latheS = preview ? 20 : 192;
+  let geo = makeLathe(dense, latheN, latheS, vs, def);
+  let pickGeometry = preview ? null : makeLathe(dense, 200, 72, vs, def);
   for (const ex of extras) {
-    geo = mergeGeo(geo, makeTube(ex, preview ? 90 : 200, preview ? 20 : 48, ex.v0, ex.v1));
-    pickGeometry = mergeGeo(pickGeometry, makeTube(ex, 80, 16, ex.v0, ex.v1));
+    geo = mergeGeo(geo, makeTube(ex, preview ? 24 : 200, preview ? 8 : 48, ex.v0, ex.v1));
+    if (pickGeometry) pickGeometry = mergeGeo(pickGeometry, makeTube(ex, 80, 16, ex.v0, ex.v1));
   }
   function outerRadiusAt(h) {
     let best = 0;
@@ -340,6 +344,7 @@ function mergeGeo(a, b) {
   const ia = a.index.array, ib = b.index.array, idx = new Uint32Array(ia.length + ib.length);
   idx.set(ia); for (let i = 0; i < ib.length; i++) idx[ia.length + i] = ib[i] + na;
   g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeBoundingSphere();
+  a.dispose(); b.dispose();
   return g;
 }
 

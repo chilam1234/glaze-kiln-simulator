@@ -22,7 +22,16 @@ three.js r165 is vendored in `vendor/` and loaded through the import map in inde
   After a firing, `__sim.engine` is `"worker"` or `"page"`. Seed, cone, and `dripStats` stay the stable result.
 - `js/material.js`: MeshPhysicalMaterial patch with object-space Voronoi crackle, iron/carbon speckle, kiln glow.
 - `js/main.js`: scene (RoomEnvironment PMREM, soft shadow), UI, input, firing animation, `window.__sim` test hook.
+- `js/webgl.js`: WebGL2 probe (performance caveat on, then off), software-renderer detection, reduced-quality mode, and the no-GPU help overlay. three.js r165+ is WebGL2-only; a missing context never throws.
 - `tests/verify.py`: headless-Chrome (SwiftShader) verification that writes `shots/`. `tests/lookdev.py`: scripted look-dev.
+- `tests/verify_perf.py`: fire and drag timings (desktop, iPhone 13, 4× CPU throttle).
+- `tests/verify_webgl.py`: normal / `--disable-gpu --disable-software-rasterizer` / `--disable-webgl` / simulated context loss.
+
+## Performance
+Dragging profile, handle, or spout nodes rebuilds a low-res preview on `requestAnimationFrame` and the full mesh on release. Sliders use the same preview path. Fire runs the melt on the kiln worker without yielding, overlaps the heat glow with the simulation, and shows a progress bar. Pixel ratio is capped (1.25 on a phone, 1.5 on desktop, 1.0 in reduced mode). Old geometries and pick materials are disposed.
+
+## No GPU / software rendering
+The app tries WebGL2 with `failIfMajorPerformanceCaveat`, then WebGL2 without the caveat (SwiftShader and other software renderers). Software rendering keeps a reduced-quality pot (no shadows, simpler shading, lower resolution). If no context can be created, a help overlay explains how to turn hardware acceleration on in Chrome (`chrome://settings/system`) and Safari, and `__sim` is still installed so the page does not throw. `webglcontextlost` is prevented and `webglcontextrestored` re-uploads textures.
 
 ## Drips / firing seed
 Each Fire uses a new random seed, so the drip layout changes every time. To pin it, use `?seed=123` in the URL, or
