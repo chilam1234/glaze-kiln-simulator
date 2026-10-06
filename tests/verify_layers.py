@@ -139,6 +139,8 @@ def run_on(page, label, touch=False):
     expect_layers(page, 1, f'{label} dispatch 1 after 5')
     dispatch_layers(page, 3)
     expect_layers(page, 3, f'{label} dispatch 3')
+    page.locator('#thick').scroll_into_view_if_needed()
+    page.wait_for_timeout(80)
     save(page, f'layers-{label}.png')
 
     if 'iphone' in label:
