@@ -205,7 +205,18 @@ export class GlazeState {
         if (f > sb[i]) { T[i] = Math.min(2.5, T[i] + (f - sb[i]) * amount); sb[i] = f; S[i] = this.strokeId; }
       }
     }
+    if (this.deferCompose) {
+      this._ck0 = this._ck0 == null ? k0 : Math.min(this._ck0, k0);
+      this._ck1 = this._ck1 == null ? k1 : Math.max(this._ck1, k1);
+      return;
+    }
     this.composeRaw(k0, k1);
+  }
+  flushCompose() {
+    if (this._ck1 == null || this._ck1 < this._ck0) return;
+    const a = this._ck0, b = this._ck1;
+    this._ck0 = 1e9; this._ck1 = -1;
+    this.composeRaw(a, b);
   }
   pour(gi, h, mode, amount) {
     if (this._recording) this.ops.push({ op: 'pour', glaze: GLAZES[gi].id, h: q4(h), mode, t: q4(amount) });

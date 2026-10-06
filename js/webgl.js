@@ -3,7 +3,9 @@
 // can create a context. three.js r165+ is WebGL2-only, so a WebGL1-only GPU still
 // gets the help overlay rather than a crash.
 
-const SOFT = /swiftshader|llvmpipe|softpipe|microsoft basic render|mesa offscreen|software rasterizer|google swiftshader/i;
+const SOFT = /swiftshader|llvmpipe|softpipe|microsoft basic render|mesa offscreen|software rasterizer|google swiftshader|\bwarp\b|d3d11\s*warp|d3d-?11warp/i;
+export const QUALITY_KEY = 'glaze-kiln-quality';
+export const HW_HELP = 'https://support.google.com/chrome/answer/96816';
 
 function attrs(caveat, antialias) {
   return {
@@ -45,19 +47,50 @@ function rendererName(gl) {
   return { vendor, renderer };
 }
 
-function isSoftware(name) {
-  return SOFT.test(name.vendor + ' ' + name.renderer);
+export function classifyRenderer(vendor, renderer) {
+  const s = `${vendor || ''} ${renderer || ''}`;
+  const software = SOFT.test(s);
+  const d3d11 = /direct3d\s*11|\bd3d11\b/i.test(s);
+  const d3d11Hardware = d3d11 && !software;
+  return {
+    software,
+    d3d11Hardware,
+    warp: /\bwarp\b/i.test(s) || /microsoft basic render/i.test(s),
+  };
 }
 
 export function isMobileView() {
   return window.matchMedia('(max-width: 700px), (max-height: 520px) and (max-width: 960px)').matches;
 }
 
-export function pixelRatioFor(reduced) {
+export function pixelRatioFor(lite) {
   const dpr = window.devicePixelRatio || 1;
-  if (reduced) return Math.min(dpr, 1);
+  if (lite) return Math.min(dpr, 1);
   if (isMobileView()) return Math.min(dpr, 1.25);
   return Math.min(dpr, 1.5);
+}
+
+export function readQualityPref() {
+  try {
+    const q = new URLSearchParams(location.search).get('quality');
+    if (q === 'auto' || q === 'high' || q === 'lite') return q;
+    const s = localStorage.getItem(QUALITY_KEY);
+    if (s === 'auto' || s === 'high' || s === 'lite') return s;
+  } catch (_) {}
+  return 'auto';
+}
+
+export function saveQualityPref(v) {
+  try { localStorage.setItem(QUALITY_KEY, v); } catch (_) {}
+}
+
+export function decideLite(pref, gpu, frame) {
+  if (pref === 'lite') return { lite: true, reason: 'pref' };
+  if (pref === 'high') return { lite: false, reason: 'pref' };
+  if (gpu && gpu.d3d11Hardware) return { lite: false, reason: 'd3d11' };
+  if (gpu && gpu.software) return { lite: true, reason: 'software' };
+  if (frame && (frame.fps < 28 || frame.medianDt > 36)) return { lite: true, reason: 'slow-frames' };
+  return { lite: false, reason: 'auto-ok' };
 }
 
 export function probeGpu() {
@@ -77,11 +110,14 @@ export function probeGpu() {
   }
   const name = rendererName(gl);
   const webgl2 = !!(gl && typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext);
-  const software = isSoftware(name);
-  const ok = webgl2; // three.js r165+ refuses WebGL 1
-  const reduced = !!(ok && (software || (used && !used.caveat)));
+  const classif = classifyRenderer(name.vendor, name.renderer);
+  const ok = webgl2;
   return {
-    canvas, gl, used, ok, webgl2, software, reduced,
+    canvas, gl, used, ok, webgl2,
+    software: classif.software,
+    d3d11Hardware: classif.d3d11Hardware,
+    warp: classif.warp,
+    reduced: !!(ok && classif.software),
     vendor: name.vendor, renderer: name.renderer,
     reason: !gl ? 'no-context' : (webgl2 ? '' : 'webgl1-only'),
   };
@@ -105,13 +141,14 @@ export function installNoGpu(view, gpu) {
       <li>Turn on <b>Use graphics acceleration when available</b></li>
       <li>Relaunch Chrome and reload this page</li>
     </ol>
+    <p><a href="${HW_HELP}" target="_blank" rel="noopener">Chrome help: fix graphics issues</a></p>
     <h3>Safari</h3>
     <ol>
       <li>Safari → Settings → Feature Flags (or Develop → Experimental Features)</li>
       <li>Enable WebGL and GPU process / hardware acceleration</li>
       <li>On iPhone or iPad, stay on a recent iOS build — WebGL cannot be forced on if the system disabled it</li>
     </ol>
-    <p class="hint">If you launched Chrome with <code>--disable-gpu</code> or <code>--disable-webgl</code>, drop those flags. Software rendering (SwiftShader) still works in a reduced-quality mode; a missing context does not.</p>
+    <p class="hint">If you launched Chrome with <code>--disable-gpu</code> or <code>--disable-webgl</code>, drop those flags. Software rendering (SwiftShader) still works in Lite mode; a missing context does not.</p>
   `;
   view.appendChild(el);
   const status = document.getElementById('status');
@@ -123,7 +160,7 @@ export function installNoGpu(view, gpu) {
 
 function makeStub(gpu) {
   const noop = () => {};
-  const gpuInfo = infoOf(gpu, false);
+  const gpuInfo = infoOf(gpu, false, { pref: 'auto', lite: false, reason: 'no-gpu' });
   return {
     get state() { return 'nogpu'; },
     gpu: gpuInfo,
@@ -150,31 +187,52 @@ function makeStub(gpu) {
     loseContext: noop,
     restoreContext: noop,
     shown: () => ({ engine: 'none', mode: 'raw', maps: {}, sim: {} }),
+    classifyGpu: (v, r) => classifyRenderer(v, r),
+    setQuality: noop,
+    get quality() { return 'auto'; },
   };
 }
 
-export function infoOf(gpu, ok) {
+export function infoOf(gpu, ok, extra = {}) {
   return {
     ok: !!ok,
-    reduced: !!(gpu && gpu.reduced),
+    reduced: !!(extra.lite ?? (gpu && gpu.reduced)),
+    lite: !!(extra.lite ?? (gpu && gpu.reduced)),
     software: !!(gpu && gpu.software),
+    d3d11Hardware: !!(gpu && gpu.d3d11Hardware),
+    warp: !!(gpu && gpu.warp),
     webgl2: !!(gpu && gpu.webgl2),
     vendor: (gpu && gpu.vendor) || '',
     renderer: (gpu && gpu.renderer) || '',
-    reason: (gpu && gpu.reason) || '',
+    reason: extra.reason || (gpu && gpu.reason) || '',
+    quality: extra.pref || 'auto',
   };
 }
 
-export function showReducedNote(view) {
+export function showLiteBanner(view, opts = {}) {
   let el = document.getElementById('gpuNote');
   if (!el) {
-    el = document.createElement('p');
+    el = document.createElement('aside');
     el.id = 'gpuNote';
     el.className = 'gpu-note';
     view.appendChild(el);
   }
+  const auto = opts.reason === 'software' || opts.reason === 'slow-frames';
+  const why = opts.reason === 'slow-frames'
+    ? 'This machine is drawing frames too slowly.'
+    : 'This browser is using software graphics (SwiftShader, WARP, or similar).';
   el.hidden = false;
-  el.textContent = 'Software graphics. Quality is reduced so the kiln still runs.';
+  el.innerHTML = auto
+    ? `<p><b>Lite mode</b> turned on automatically. ${why}</p>
+       <p class="gpu-note-help"><a href="${HW_HELP}" target="_blank" rel="noopener">How to enable hardware acceleration in Chrome</a>
+       · open <code>chrome://settings/system</code> and turn on graphics acceleration.</p>`
+    : `<p><b>Lite mode</b> is on. Lower resolution, no shadows, simpler shading.</p>
+       <p class="gpu-note-help"><a href="${HW_HELP}" target="_blank" rel="noopener">How to enable hardware acceleration in Chrome</a></p>`;
+}
+
+export function hideLiteBanner() {
+  const el = document.getElementById('gpuNote');
+  if (el) el.hidden = true;
 }
 
 export function bindContextEvents(canvas, gl, hooks) {

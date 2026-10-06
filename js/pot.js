@@ -170,12 +170,13 @@ export function buildCustomPot(spec, opts) {
 
 function finishPot(kind, def, opts = {}) {
   const preview = !!opts.preview;
-  const nRaw = preview ? 240 : 4000;
-  const nDense = preview ? 400 : 6000;
-  const raw = (preview ? def.path.getPoints(nRaw) : def.path.getSpacedPoints(nRaw)).map(p => [p.x, p.y]);
+  const lite = !!opts.lite && !preview;
+  const nRaw = preview ? 240 : lite ? 720 : 4000;
+  const nDense = preview ? 400 : lite ? 960 : 6000;
+  const raw = (preview || lite ? def.path.getPoints(nRaw) : def.path.getSpacedPoints(nRaw)).map(p => [p.x, p.y]);
   let { pts: dense } = resample(raw, nRaw);
   // throwing ridges on near-vertical walls
-  if (def.ridges > 0 && !preview) {
+  if (def.ridges > 0 && !preview && !lite) {
     const n = dense.length, out = [];
     for (let i = 0; i < n; i++) {
       const a = dense[Math.max(0, i - 1)], b = dense[Math.min(n - 1, i + 1)];
@@ -232,9 +233,9 @@ function finishPot(kind, def, opts = {}) {
     kap[k] = d / span + 0.2 * nr[k] / Math.max(r[k], 0.25);
   }
   const kpot = kap.subarray(0, Hp);
-  const kEdge = preview ? kpot : gaussBlur1D(kpot, 0.018 / ds);
-  const kCav = preview ? kpot : gaussBlur1D(kpot, 0.03 / ds);
-  const kWide = preview ? kpot : gaussBlur1D(kpot, 0.08 / ds);
+  const kEdge = (preview || lite) ? kpot : gaussBlur1D(kpot, 0.018 / ds);
+  const kCav = (preview || lite) ? kpot : gaussBlur1D(kpot, 0.03 / ds);
+  const kWide = (preview || lite) ? kpot : gaussBlur1D(kpot, 0.08 / ds);
   const edge = new Float32Array(H), cavity = new Float32Array(H), dir = new Int8Array(H), steep = new Float32Array(H), w = new Float32Array(H), wax = new Uint8Array(H), sep = new Uint8Array(H);
   for (let k = 0; k < Hp; k++) {
     edge[k] = smooth(3.0, 14.0, kEdge[k]);
@@ -273,12 +274,12 @@ function finishPot(kind, def, opts = {}) {
   const rows = { r, y, nr, ny, edge, cavity, dir, steep, w, wax, sep, ds, L, kap, potRows: Hp, handleFrom, handleTo, spoutFrom, spoutTo, frame };
 
   const vs = Hp / H;
-  const latheN = preview ? 48 : 480, latheS = preview ? 20 : 192;
+  const latheN = preview ? 48 : lite ? 72 : 480, latheS = preview ? 20 : lite ? 24 : 192;
   let geo = makeLathe(dense, latheN, latheS, vs, def);
-  let pickGeometry = preview ? null : makeLathe(dense, 200, 72, vs, def);
+  let pickGeometry = preview ? null : makeLathe(dense, lite ? 96 : 200, lite ? 32 : 72, vs, def);
   for (const ex of extras) {
-    geo = mergeGeo(geo, makeTube(ex, preview ? 24 : 200, preview ? 8 : 48, ex.v0, ex.v1));
-    if (pickGeometry) pickGeometry = mergeGeo(pickGeometry, makeTube(ex, 80, 16, ex.v0, ex.v1));
+    geo = mergeGeo(geo, makeTube(ex, preview ? 24 : lite ? 40 : 200, preview ? 8 : lite ? 10 : 48, ex.v0, ex.v1));
+    if (pickGeometry) pickGeometry = mergeGeo(pickGeometry, makeTube(ex, lite ? 40 : 80, lite ? 10 : 16, ex.v0, ex.v1));
   }
   function outerRadiusAt(h) {
     let best = 0;
