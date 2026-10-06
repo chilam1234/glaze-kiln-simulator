@@ -70,7 +70,16 @@
           <label class="slider">Foot Ø <output id="customFootOut"></output>
             <input type="range" id="customFoot" min="3" max="32" step="0.1"></label>
           <label class="slider">Wall <output id="customWallOut"></output>
-            <input type="range" id="customWall" min="0.3" max="1.4" step="0.05"></label>
+            <input type="range" id="customWall" min="0.3" max="2.0" step="0.05"></label>
+          <label class="check" id="wallTaperRow"><input type="checkbox" id="wallTaper"> Thickness taper</label>
+          <div class="wall-zones" id="wallZones">
+            <label class="slider">Rim wall <output id="wallRimOut"></output>
+              <input type="range" id="wallRim" min="0.3" max="2.0" step="0.05"></label>
+            <label class="slider">Mid wall <output id="wallMidOut"></output>
+              <input type="range" id="wallMid" min="0.3" max="2.0" step="0.05"></label>
+            <label class="slider">Base / floor <output id="wallBaseOut"></output>
+              <input type="range" id="wallBase" min="0.3" max="2.0" step="0.05"></label>
+          </div>
         </div>
         <div class="shape-group" data-group="handle">
           <h3>Handle</h3>
@@ -218,6 +227,10 @@
 </aside>
 <main id="view">
   <p class="view-folio">The pot is the specimen</p>
+  <div id="kilnProgress" hidden>
+    <p id="kilnProgressLabel">Firing…</p>
+    <div class="kiln-bar"><i id="kilnBar"></i></div>
+  </div>
   <div id="dimHud" hidden></div>
   <div id="shapeTools" hidden>
     <button type="button" id="nodeDelHud">Delete node</button>

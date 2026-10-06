@@ -91,6 +91,23 @@ def foot_body():
     }
 
 
+def wall_body():
+    return {
+        'nodes': [{'r': 0.88, 'y': 0.13}, {'r': 0.94, 'y': 0.52}, {'r': 0.90, 'y': 1.02}],
+        'bulges': [{'r': 0.96, 'y': 0.30}, {'r': 0.95, 'y': 0.78}],
+        'wall': 0.055,
+        'handle': 'none',
+        'handlePos': 0.14,
+        'handleHeight': 0.42,
+        'handleWidth': 0.45,
+        'handleThick': 0.055,
+        'spout': 'none',
+        'spoutSize': 1,
+        'spoutY': 0.5,
+        'spoutMouth': 1,
+    }
+
+
 FOOT_STYLES = ('ring', 'raised', 'pedestal', 'hidden', 'recessed', 'flat')
 
 
@@ -622,6 +639,91 @@ def run():
         if abs(d1['foot'] - d0) < 0.3:
             failed.append(f'Foot Ø slider did not change diameter {d0} -> {d1}')
 
+        # wall thickness: range, live inner/capacity, per-zone taper, visible rim
+        page.evaluate('(s) => __sim.setCustom(s)', wall_body())
+        page.wait_for_timeout(300)
+        wall_lim = page.evaluate('() => __sim.getLimits().wall')
+        wall_sl = page.evaluate('() => ({ min: +document.getElementById("customWall").min, max: +document.getElementById("customWall").max, rimMax: +document.getElementById("wallRim").max, baseMax: +document.getElementById("wallBase").max })')
+        print('wall limits', wall_lim, wall_sl)
+        if not wall_lim or wall_lim[0] > 0.031 or wall_lim[1] < 0.195:
+            failed.append(f'wall limits should span ~0.3–2.0 cm {wall_lim}')
+        if wall_sl['min'] > 0.31 or wall_sl['max'] < 1.95 or wall_sl['rimMax'] < 1.95:
+            failed.append(f'Wall sliders should reach 0.3–2.0 cm {wall_sl}')
+
+        page.evaluate('() => __sim.setCustom({ wall: 0.03 })')
+        page.wait_for_timeout(250)
+        thin = page.evaluate('() => __sim.wallInfo()')
+        ml_thin = thin['ml']
+        page.evaluate('() => __sim.setCustom({ wall: 0.18 })')
+        page.wait_for_timeout(250)
+        thick = page.evaluate('() => __sim.wallInfo()')
+        ml_thick = thick['ml']
+        print('wall thin', {k: thin[k] for k in ('wall', 'ml', 'rim')})
+        print('wall thick', {k: thick[k] for k in ('wall', 'ml', 'rim')})
+        if thick['rim']['thick'] < thin['rim']['thick'] * 2.2:
+            failed.append(f'rim thickness should grow with Wall slider thin={thin["rim"]} thick={thick["rim"]}')
+        if thick['rim']['thick'] < 0.10:
+            failed.append(f'thick rim not visible in geometry {thick["rim"]}')
+        if abs(thick['rim']['thick'] - 0.18) > 0.08:
+            failed.append(f'thick rim should be close to 1.8 cm of clay {thick["rim"]}')
+        if ml_thick >= ml_thin * 0.92:
+            failed.append(f'capacity should drop when the wall thickens {ml_thin:.0f} -> {ml_thick:.0f}')
+        page.evaluate('() => { document.getElementById("customWall").value = 0.55; document.getElementById("customWall").dispatchEvent(new Event("input")); }')
+        page.wait_for_timeout(200)
+        live = page.evaluate('() => ({ wall: __sim.getDims().wall, ml: Math.round(__sim.getDims().ml), out: document.getElementById("customWallOut").textContent, cap: document.getElementById("capOut").textContent })')
+        print('wall live slider', live)
+        if abs(live['wall'] - 0.55) > 0.08:
+            failed.append(f'Wall slider did not update live thickness {live}')
+        if live['cap'] != str(live['ml']):
+            failed.append(f'capacity readout should follow the Wall slider {live}')
+
+        page.evaluate('() => __sim.setCustom({ wall: 0.03 })')
+        page.evaluate('__sim.setView(8, 58, 0.42)')
+        page.wait_for_timeout(350)
+        save(page, 'custom-wall-thin-rim.png', full=False)
+        page.evaluate('() => __sim.setCustom({ wall: 0.20 })')
+        page.evaluate('__sim.setView(8, 58, 0.42)')
+        page.wait_for_timeout(350)
+        save(page, 'custom-wall-thick-rim.png', full=False)
+
+        page.evaluate('''() => __sim.setCustom({
+          wallTaper: true, wallBase: 0.18, wallMid: 0.10, wallRim: 0.04, wall: 0.10
+        })''')
+        page.wait_for_timeout(300)
+        tap = page.evaluate('() => __sim.wallInfo()')
+        print('wall taper', tap)
+        if not tap['taper']:
+            failed.append('thickness taper did not stay on')
+        if tap['rim']['thick'] >= tap['floor']['thick'] - 0.02:
+            failed.append(f'taper should be thicker at the floor than the rim {tap["rim"]} vs {tap["floor"]}')
+        if tap['rim']['thick'] >= tap['mid']['thick'] - 0.01:
+            failed.append(f'taper should be thinner at the rim than mid {tap["rim"]} vs {tap["mid"]}')
+        if tap['rim']['spec'] >= tap['floor']['spec'] * 0.7:
+            failed.append(f'wallAt rim should be thinner than the floor {tap}')
+        ml_taper = tap['ml']
+        page.evaluate('() => __sim.setCustom({ wallTaper: true, wallBase: 0.04, wallMid: 0.10, wallRim: 0.18, wall: 0.10 })')
+        page.wait_for_timeout(250)
+        tap2 = page.evaluate('() => __sim.wallInfo()')
+        print('wall taper rim-heavy', tap2)
+        if tap2['rim']['thick'] <= tap2['mid']['thick'] + 0.02:
+            failed.append(f'thick rim / thin floor should reverse the sandwich {tap2["rim"]} vs {tap2["mid"]} floor={tap2["floor"]}')
+        if tap2['rim']['spec'] <= tap2['floor']['spec'] * 1.5:
+            failed.append(f'taper spec should be thicker at the rim when flipped {tap2}')
+        if tap2['floor']['thick'] >= tap2['rim']['thick'] - 0.01:
+            failed.append(f'flipped taper should measure a thinner floor than rim {tap2["floor"]} vs {tap2["rim"]}')
+        if tap2['ml'] >= ml_taper * 1.15 and tap['rim']['spec'] < tap2['rim']['spec']:
+            pass  # capacity can go either way depending on opening; just ensure it updates
+        if abs(tap2['ml'] - ml_taper) < 1:
+            failed.append(f'capacity should change when the taper flips {ml_taper} -> {tap2["ml"]}')
+
+        page.evaluate('''() => __sim.setCustom({
+          wallTaper: true, wallBase: 0.18, wallMid: 0.10, wallRim: 0.04, wall: 0.10
+        })''')
+        page.evaluate('() => __sim.setSection(true)')
+        page.wait_for_timeout(400)
+        save(page, 'custom-wall-taper-section.png', full=False)
+        page.evaluate('() => __sim.setSection(false)')
+
         # reset a high/angled teapot with a custom-bent handle for paint + fire
         page.evaluate('''() => __sim.setCustom({
           handle: 'c', spout: 'teapot', spoutY: 0.74, spoutTilt: 0.5, spoutLen: 1.05,
@@ -733,6 +835,35 @@ def run():
         page.evaluate('__sim.setView(68, 12)')
         page.wait_for_timeout(400)
         save(page, 'custom-foot-pedestal-cone10.png', full=False)
+
+        page.click('#unfireBtn')
+        page.wait_for_function('__sim.state === "raw"', timeout=10000)
+        page.evaluate('(s) => { s.wallTaper = true; s.wallBase = 0.16; s.wallMid = 0.10; s.wallRim = 0.055; s.wall = 0.10; s.handle = "none"; s.spout = "none"; return __sim.setCustom(s); }', wall_body())
+        page.wait_for_timeout(300)
+        page.evaluate('__sim.setTool("brush")')
+        page.evaluate('__sim.pour("shino", 0.82, "below", 0.7)')
+        page.evaluate('__sim.brushBand("tenmoku", 0.72, 0.65, 0.12)')
+        page.evaluate(f'__sim.setCone(6); __sim.setSeed({SEED})')
+        t0 = time.time()
+        page.click('#fireBtn')
+        page.wait_for_function('__sim.state === "fired"', timeout=180000)
+        print(f'wall cone 6 fired in {time.time()-t0:.1f}s', page.evaluate('__sim.dripStats'))
+        if page.evaluate('__sim.state') != 'fired':
+            failed.append('wall pot cone 6 did not stay fired')
+        page.evaluate('__sim.setView(42, 18, 0.9)')
+        page.wait_for_timeout(400)
+        save(page, 'custom-wall-cone6.png', full=False)
+
+        page.click('#unfireBtn')
+        page.wait_for_function('__sim.state === "raw"', timeout=10000)
+        page.evaluate(f'__sim.setCone(10); __sim.setSeed({SEED})')
+        t0 = time.time()
+        page.click('#fireBtn')
+        page.wait_for_function('__sim.state === "fired"', timeout=180000)
+        print(f'wall cone 10 fired in {time.time()-t0:.1f}s', page.evaluate('__sim.dripStats'))
+        page.evaluate('__sim.setView(44, 18, 0.9)')
+        page.wait_for_timeout(400)
+        save(page, 'custom-wall-cone10.png', full=False)
 
         if errors:
             failed.append(f'desktop console: {errors}')
@@ -977,6 +1108,87 @@ def run():
         if buried_f:
             failed.append(f'mobile Foot sliders not reachable above fire bar: {buried_f}')
         save(m, 'custom-mobile-foot-tab.png', viewport=True)
+
+        m.evaluate('(s) => __sim.setCustom(s)', wall_body())
+        m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setSheet("pot", false)')
+        m.evaluate('__sim.setShapeGroup("pot")')
+        m.wait_for_timeout(300)
+        pot_ui = m.evaluate('''() => {
+          const ids = ['customWall', 'wallRim', 'wallMid', 'wallBase'];
+          const names = { customWall: 'Wall', wallRim: 'Rim wall', wallMid: 'Mid wall', wallBase: 'Base / floor' };
+          const sheet = document.getElementById('sheet');
+          const fire = document.getElementById('fireBtn');
+          const bar = document.getElementById('mobileBar');
+          const sr = sheet.getBoundingClientRect();
+          const fr = fire.getBoundingClientRect();
+          const br = bar.getBoundingClientRect();
+          const overflowY = getComputedStyle(sheet).overflowY;
+          const sheetScrolls = overflowY === 'auto' || overflowY === 'scroll';
+          const sheetAboveFire = sr.bottom <= fr.top + 6;
+          const groups = [...document.querySelectorAll('#shapeSubtabs button')].map(b => ({
+            t: b.textContent.trim(), h: b.getBoundingClientRect().height,
+            on: b.classList.contains('active')
+          }));
+          const sliders = ids.map(id => {
+            const inp = document.getElementById(id);
+            const lab = inp.closest('label');
+            const r = lab.getBoundingClientRect();
+            const hidden = !!(lab.hidden || lab.closest('[hidden]'));
+            const visibleBox = !hidden && r.width > 0 && r.height > 0;
+            const inViewport = visibleBox && r.top >= -2 && r.bottom <= innerHeight + 2
+              && r.left >= -2 && r.right <= innerWidth + 2;
+            const aboveFire = visibleBox && r.bottom <= fr.top + 4;
+            const inScrollArea = sheet.contains(lab) && sheetScrolls && sheetAboveFire;
+            return {
+              id, name: names[id], hidden,
+              y: Math.round(r.y), bottom: Math.round(r.bottom),
+              h: Math.round(r.height),
+              inputH: Math.round(inp.getBoundingClientRect().height),
+              inViewport, aboveFire,
+              reachable: hidden || (inViewport && aboveFire) || inScrollArea
+            };
+          });
+          const taper = document.getElementById('wallTaper');
+          const taperLab = document.getElementById('wallTaperRow');
+          const tr = taperLab.getBoundingClientRect();
+          return {
+            innerH: innerHeight,
+            sheet: { h: Math.round(sr.height), overflowY, bottom: Math.round(sr.bottom) },
+            fire: { y: Math.round(fr.y), h: Math.round(fr.height) },
+            bar: { y: Math.round(br.y), h: Math.round(br.height) },
+            sheetAboveFire, sheetScrolls,
+            fireVisible: fr.height > 0 && fr.top >= 0 && fr.bottom <= innerHeight + 2,
+            barUncovered: br.height > 0 && br.y >= 8 && br.bottom <= innerHeight + 2
+              && !(fr.y < br.bottom - 2 && fr.bottom > br.y + 2),
+            groups, sliders,
+            potTab: groups.find(g => g.t === 'Pot'),
+            taper: { on: taper.checked, h: Math.round(tr.height), hidden: !!(taperLab.hidden || taperLab.closest('[hidden]')) }
+          };
+        }''')
+        print('mobile pot wall sliders', json.dumps(pot_ui))
+        if not pot_ui['potTab'] or not pot_ui['potTab']['on']:
+            failed.append(f'mobile Pot tab not active {pot_ui["groups"]}')
+        if not pot_ui['fireVisible']:
+            failed.append(f'mobile fire bar not visible on Pot tab {pot_ui["fire"]}')
+        if not pot_ui['barUncovered']:
+            failed.append(f'mobile tab bar covered on Pot tab {pot_ui["bar"]} fire={pot_ui["fire"]}')
+        if not pot_ui['sheetAboveFire']:
+            failed.append(f'mobile Pot sheet overlaps fire bar {pot_ui}')
+        missing_w = [s['name'] for s in pot_ui['sliders'] if s['hidden']]
+        if missing_w:
+            failed.append(f'mobile Pot wall sliders hidden: {missing_w}')
+        tiny_w = [s for s in pot_ui['sliders'] if not s['hidden'] and s['inputH'] < 36]
+        if tiny_w:
+            failed.append(f'mobile Pot wall sliders not 44px-class {tiny_w}')
+        buried_w = [s for s in pot_ui['sliders'] if not s['reachable']]
+        if buried_w:
+            failed.append(f'mobile Pot wall sliders not reachable above fire bar: {buried_w}')
+        if pot_ui['taper']['hidden']:
+            failed.append('mobile thickness taper checkbox hidden on Pot tab')
+        m.evaluate('() => document.getElementById("wallZones").scrollIntoView({ block: "center" })')
+        m.wait_for_timeout(200)
+        save(m, 'custom-mobile-pot-tab.png', viewport=True)
 
         for style in FOOT_STYLES:
             info = apply_foot(m, style)
