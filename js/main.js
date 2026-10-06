@@ -1713,8 +1713,13 @@ window.__sim = {
   },
   setView(azDeg, elevDeg, distScale = 1) {
     const t = controls.target, d = camera.position.distanceTo(t) * distScale, az = azDeg * Math.PI / 180, el = elevDeg * Math.PI / 180;
+    const damp = controls.enableDamping;
+    controls.enableDamping = false;
     camera.position.set(t.x + Math.sin(az) * Math.cos(el) * d, t.y + Math.sin(el) * d, t.z + Math.cos(az) * Math.cos(el) * d);
-    controls.update(); camera.updateMatrixWorld();
+    camera.lookAt(t);
+    controls.update();
+    controls.enableDamping = damp;
+    camera.updateMatrixWorld();
   },
   getView() {
     const t = controls.target, d = camera.position.distanceTo(t);

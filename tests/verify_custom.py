@@ -592,7 +592,10 @@ def run():
             page.wait_for_timeout(280)
             save(page, f'custom-foot-{style}.png', full=False)
             if style in ('hidden', 'recessed'):
-                page.evaluate('__sim.setView(25, -40, 0.85)')
+                view = page.evaluate('() => { __sim.setView(35, -38, 0.72); return __sim.getView(); }')
+                print(f'{style} under view', {k: (round(v, 3) if isinstance(v, float) else v) for k, v in view.items()})
+                if view.get('el', 0) > -0.2:
+                    failed.append(f'{style} underside camera did not go below the pot el={view.get("el")}')
                 page.wait_for_timeout(300)
                 save(page, f'custom-foot-{style}-under.png', full=False)
 

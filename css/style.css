@@ -448,16 +448,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="pot"] #cone button {
     min-height: 40px;
   }
-  body:not(.sheet-collapsed)[data-sheet="pot"] #status {
-    font-size: 11px;
-    flex: 0 0 auto;
-    min-height: 2.6em;
-    max-height: 4.5em;
-    margin: 6px 0 0;
-    white-space: normal;
-    overflow: hidden;
-    text-overflow: clip;
-  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #status { display: none; }
   body.sheet-collapsed .sheet { display: none; }
   body.sheet-collapsed #panel { max-height: none; flex: 0 0 auto; }
   body.sheet-collapsed #view {
