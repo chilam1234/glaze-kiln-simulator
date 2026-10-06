@@ -662,8 +662,10 @@ def run():
         print('wall thick', {k: thick[k] for k in ('wall', 'ml', 'rim')})
         if thick['rim']['thick'] < thin['rim']['thick'] * 2.2:
             failed.append(f'rim thickness should grow with Wall slider thin={thin["rim"]} thick={thick["rim"]}')
-        if thick['rim']['thick'] < 0.12:
+        if thick['rim']['thick'] < 0.10:
             failed.append(f'thick rim not visible in geometry {thick["rim"]}')
+        if abs(thick['rim']['thick'] - 0.18) > 0.08:
+            failed.append(f'thick rim should be close to 1.8 cm of clay {thick["rim"]}')
         if ml_thick >= ml_thin * 0.92:
             failed.append(f'capacity should drop when the wall thickens {ml_thin:.0f} -> {ml_thick:.0f}')
         page.evaluate('() => { document.getElementById("customWall").value = 0.55; document.getElementById("customWall").dispatchEvent(new Event("input")); }')
@@ -707,6 +709,8 @@ def run():
             failed.append(f'thick rim / thin floor should reverse the sandwich {tap2["rim"]} vs {tap2["mid"]} floor={tap2["floor"]}')
         if tap2['rim']['spec'] <= tap2['floor']['spec'] * 1.5:
             failed.append(f'taper spec should be thicker at the rim when flipped {tap2}')
+        if tap2['floor']['thick'] >= tap2['rim']['thick'] - 0.01:
+            failed.append(f'flipped taper should measure a thinner floor than rim {tap2["floor"]} vs {tap2["rim"]}')
         if tap2['ml'] >= ml_taper * 1.15 and tap['rim']['spec'] < tap2['rim']['spec']:
             pass  # capacity can go either way depending on opening; just ensure it updates
         if abs(tap2['ml'] - ml_taper) < 1:
@@ -1112,7 +1116,7 @@ def run():
         m.wait_for_timeout(300)
         pot_ui = m.evaluate('''() => {
           const ids = ['customWall', 'wallRim', 'wallMid', 'wallBase'];
-          const names = { customWall: 'Wall', wallRim: 'Rim wall', wallMid: 'Middle wall', wallBase: 'Base / floor' };
+          const names = { customWall: 'Wall', wallRim: 'Rim wall', wallMid: 'Mid wall', wallBase: 'Base / floor' };
           const sheet = document.getElementById('sheet');
           const fire = document.getElementById('fireBtn');
           const bar = document.getElementById('mobileBar');

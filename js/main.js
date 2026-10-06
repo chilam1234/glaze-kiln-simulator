@@ -1942,17 +1942,17 @@ window.__sim = {
     const band = (yTarget, yWin = 0.04) => {
       const specT = wallAt(customSpec, yTarget);
       let outer = 0;
-      const rs = [];
       for (let k = 0; k < R.potRows; k++) {
         if (Math.abs(R.y[k] - yTarget) > yWin) continue;
-        rs.push(R.r[k]);
         if (R.r[k] > outer) outer = R.r[k];
       }
-      let inner = 0;
-      for (const r of rs) {
-        if (r > outer * 0.22 && r < outer - specT * 0.35 && r > inner) inner = r;
+      const minKeep = Math.max(0.05, outer - specT * 2.5);
+      let inner = 1e9;
+      for (let k = 0; k < R.potRows; k++) {
+        if (Math.abs(R.y[k] - yTarget) > yWin) continue;
+        if (R.r[k] >= minKeep && R.r[k] < inner) inner = R.r[k];
       }
-      if (inner < 0.05) inner = Math.max(0.03, outer - specT);
+      if (inner > 1e8) inner = Math.max(0.03, outer - specT);
       return { y: yTarget, outer, inner, thick: Math.max(0, outer - inner), spec: specT };
     };
     const d = dimsCm(customSpec);
