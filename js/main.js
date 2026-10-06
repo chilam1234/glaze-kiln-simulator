@@ -5,7 +5,8 @@ import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm,
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
-import { makePotMaterial } from './material.js';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js';
+import { probeGpu, installNoGpu, showReducedNote, bindContextEvents, pixelRatioFor, infoOf } from './webgl.js';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -28,45 +29,85 @@ syncAppSize();
   Element.prototype.releasePointerCapture = function (id) { try { rpc.call(this, id); } catch (_) {} };
 })();
 
+const gpuProbe = probeGpu();
+if (!gpuProbe.ok) {
+  installNoGpu(view, gpuProbe);
+} else {
+  startApp(gpuProbe);
+}
+
+function startApp(gpuProbe) {
 // ---------- renderer / scene ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({
+    canvas: gpuProbe.canvas,
+    context: gpuProbe.gl,
+    antialias: !gpuProbe.reduced && !isMobileLayout(),
+    preserveDrawingBuffer: true,
+    powerPreference: gpuProbe.reduced ? 'low-power' : 'high-performance',
+    failIfMajorPerformanceCaveat: false,
+    alpha: false,
+  });
+} catch (err) {
+  console.warn('WebGL renderer failed', err && err.message);
+  installNoGpu(view, { ...gpuProbe, ok: false, reason: gpuProbe.webgl2 ? 'no-context' : (gpuProbe.reason || 'no-context') });
+  return;
+}
+renderer.setPixelRatio(pixelRatioFor(gpuProbe.reduced));
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 0.95;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = !gpuProbe.reduced;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 view.appendChild(renderer.domElement);
+if (gpuProbe.reduced) showReducedNote(view);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#F5F1E8');
-const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.85;
+if (gpuProbe.reduced) {
+  scene.environment = null;
+  scene.environmentIntensity = 0;
+  scene.add(new THREE.AmbientLight(0xfff4ea, 0.62));
+  scene.add(new THREE.HemisphereLight(0xf3f6ff, 0x8a7a68, 0.7));
+} else {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.85;
+}
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
-const key = new THREE.DirectionalLight(0xfff6ee, 1.8);
+const key = new THREE.DirectionalLight(0xfff6ee, gpuProbe.reduced ? 1.15 : 1.8);
 key.position.set(3.5, 6, 4);
-key.castShadow = true;
-key.shadow.mapSize.set(isMobileLayout() ? 1024 : 2048, isMobileLayout() ? 1024 : 2048);
+key.castShadow = !gpuProbe.reduced;
+key.shadow.mapSize.set(gpuProbe.reduced ? 256 : (isMobileLayout() ? 1024 : 2048), gpuProbe.reduced ? 256 : (isMobileLayout() ? 1024 : 2048));
 key.shadow.camera.left = -2.5; key.shadow.camera.right = 2.5; key.shadow.camera.top = 3.5; key.shadow.camera.bottom = -1.5;
 key.shadow.camera.near = 1; key.shadow.camera.far = 20;
-key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = 6;
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = gpuProbe.reduced ? 2 : 6;
 scene.add(key);
-const ground = new THREE.Mesh(new THREE.CircleGeometry(12, 64), new THREE.ShadowMaterial({ opacity: 0.28 }));
-ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(12, gpuProbe.reduced ? 24 : 64), new THREE.ShadowMaterial({ opacity: gpuProbe.reduced ? 0.16 : 0.28 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = !gpuProbe.reduced; scene.add(ground);
 
 // ---------- textures + glaze state ----------
 function dataTex(arr, srgb) {
   const t = new THREE.DataTexture(arr, TEX_W, TEX_H, THREE.RGBAFormat, THREE.UnsignedByteType);
   t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
-  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
-  t.anisotropy = 8;
+  t.magFilter = THREE.LinearFilter;
+  if (gpuProbe.reduced) {
+    t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.anisotropy = 1;
+  } else {
+    t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.anisotropy = 4;
+  }
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.needsUpdate = true; return t;
 }
 const state = new GlazeState();
 const tex = { color: dataTex(state.color, true), props: dataTex(state.props), fx: dataTex(state.fx), height: dataTex(state.height) };
 let dirty = false;
+let lastBuildMs = 0, fireWallMs = 0, previewing = false;
+const ctxLost = bindContextEvents(renderer.domElement, renderer.getContext(), {
+  onLost() { setStatus('Graphics paused — restoring…'); },
+  onRestored() { uploadTextures(); resize(); setStatus('Graphics restored.'); },
+});
 // The kiln thread returns fresh maps. Point the textures at them, or the pot keeps the raw image
 // and later strokes never show.
 function uploadTextures() {
@@ -78,7 +119,7 @@ function uploadTextures() {
   dirty = false;
 }
 state.onUpload = () => { dirty = true; };
-const material = makePotMaterial(tex);
+const material = gpuProbe.reduced ? makeSimplePotMaterial(tex) : makePotMaterial(tex);
 let pot = null, mesh = null, pickMesh = null;
 
 // ---------- UI state ----------
@@ -105,15 +146,29 @@ function frameCamera() {
   ensureGripsInView();
 }
 function applyBuiltPot(built, opts = {}) {
+  const t0 = performance.now();
   pot = built;
-  if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); }
+  if (mesh) {
+    scene.remove(mesh);
+    if (mesh.geometry && mesh.geometry !== pot.geometry) mesh.geometry.dispose();
+  }
   mesh = new THREE.Mesh(pot.geometry, material);
-  mesh.castShadow = true; mesh.receiveShadow = true;
-  if (pickMesh) pickMesh.geometry.dispose();
-  pickMesh = new THREE.Mesh(pot.pickGeometry, new THREE.MeshBasicMaterial());
-  pickMesh.updateMatrixWorld();
+  const live = !opts.preview && !gpuProbe.reduced;
+  mesh.castShadow = live; mesh.receiveShadow = live;
+  if (!opts.preview) {
+    if (pickMesh) {
+      if (pickMesh.geometry && pickMesh.geometry !== pot.pickGeometry) pickMesh.geometry.dispose();
+      if (pickMesh.material) pickMesh.material.dispose();
+    }
+    if (pot.pickGeometry) {
+      pickMesh = new THREE.Mesh(pot.pickGeometry, new THREE.MeshBasicMaterial());
+      pickMesh.updateMatrixWorld();
+    } else pickMesh = null;
+  }
   scene.add(mesh);
   state.setPot(pot, opts);
+  lastBuildMs = performance.now() - t0;
+  previewing = !!opts.preview;
   if (!opts.preview) ui.simState = 'raw';
   if (!opts.preview && !opts.noFrame) frameCamera();
   if (opts.skipUi) {
@@ -167,6 +222,7 @@ function showingGizmos() {
 function rebuildCustom(opts = {}) {
   if (!customSpec) return;
   if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return; }
+  const t0 = performance.now();
   applyBuiltPot(buildCustomPot(customSpec, { preview: !!opts.preview }), {
     preview: !!opts.preview,
     skipNoise: !!opts.preview,
@@ -176,6 +232,7 @@ function rebuildCustom(opts = {}) {
     noFrame: true,
     skipUi: !!opts.skipUi,
   });
+  lastBuildMs = performance.now() - t0;
   if (!opts.preview) {
     ensureGripsInView();
     noteShape();
@@ -186,6 +243,7 @@ function rebuildCustom(opts = {}) {
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 function hitAt(clientX, clientY) {
+  if (!pickMesh) return null;
   const rect = renderer.domElement.getBoundingClientRect();
   ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
   camera.updateMatrixWorld(); raycaster.setFromCamera(ndc, camera);
@@ -579,6 +637,12 @@ function queueShapePreview() {
     rebuildCustom({ preview: true, skipUi: true });
   });
 }
+function livePreview() {
+  if (!customSpec || shapeLocked()) return;
+  syncCustomSliders();
+  liveCustomStatus();
+  queueShapePreview();
+}
 function flushShapePreview() {
   if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = 0; }
 }
@@ -793,18 +857,33 @@ const glow = { v: 0 };
 function animateTo(obj, key, to, ms) {
   return new Promise(res => { const from = obj[key], t0 = performance.now(); const step = () => { const k = Math.min(1, (performance.now() - t0) / ms); obj[key] = from + (to - from) * (k * k * (3 - 2 * k)); k < 1 ? requestAnimationFrame(step) : res(); }; step(); });
 }
+function setFireProgress(p, label) {
+  const wrap = $('kilnProgress'), bar = $('kilnBar'), lab = $('kilnProgressLabel');
+  if (!wrap) return;
+  if (p == null) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  if (lab && label) lab.textContent = label;
+  if (bar) bar.style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + '%';
+}
 async function fire(seed) {
   if (ui.simState === 'firing') return;
   if (ui.simState !== 'raw' && ui.simState !== 'fired') return;
   ui.simState = 'firing'; document.body.classList.add('sheet-collapsed'); refreshUI(); cursor.visible = false; pourRing.visible = false;
   const temp = ui.cone === 10 ? 1285 : 1222;
   setStatus(`Firing… heating to cone ${ui.cone} (~${temp}°C, Orton 60°C/h)`);
+  setFireProgress(0.04, `Heating to cone ${ui.cone}`);
   const t0 = performance.now();
-  await animateTo(glow, 'v', 1, 1000);
-  await state.fire(p => setStatus(`Firing… melt & flow ${Math.round(p * 100)}%`), typeof seed === 'number' ? seed : undefined);
+  const simP = state.fire(p => {
+    setFireProgress(0.08 + 0.82 * p, `Melt & flow ${Math.round(p * 100)}%`);
+    setStatus(`Firing… melt & flow ${Math.round(p * 100)}%`);
+  }, typeof seed === 'number' ? seed : undefined);
+  await Promise.all([animateTo(glow, 'v', 1, 420), simP]);
   setStatus('Cooling…');
-  await animateTo(glow, 'v', 0, 1600);
+  setFireProgress(0.96, 'Cooling…');
+  await animateTo(glow, 'v', 0, 720);
+  setFireProgress(null);
   ui.simState = 'fired'; refreshUI();
+  fireWallMs = performance.now() - t0;
   const ds = state.dripStats || {};
   setStatus(`Painting is locked. Unfire to paint again. Seed ${state.seed}, ${ds.drips ?? 0} runs.`);
 }
@@ -1364,18 +1443,18 @@ window.addEventListener('keydown', (e) => {
     deleteSelectedNode();
   }
 });
-$('customH').oninput = (e) => { if (!customSpec) return; setHeight(customSpec, +e.target.value / UNIT_CM); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+$('customH').oninput = (e) => { if (!customSpec) return; setHeight(customSpec, +e.target.value / UNIT_CM); livePreview(); };
 $('customH').onchange = () => onCustomChange();
-$('customRim').oninput = (e) => { if (!customSpec) return; setRimR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+$('customRim').oninput = (e) => { if (!customSpec) return; setRimR(customSpec, +e.target.value / UNIT_CM / 2); livePreview(); };
 $('customRim').onchange = () => onCustomChange();
-$('customFoot').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+$('customFoot').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); livePreview(); };
 $('customFoot').onchange = () => onCustomChange();
 if ($('footOuter')) {
-  $('footOuter').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+  $('footOuter').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); livePreview(); };
   $('footOuter').onchange = () => onCustomChange();
 }
 if ($('footH')) {
-  $('footH').oninput = (e) => { if (!customSpec) return; setFootH(customSpec, +e.target.value / UNIT_CM); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+  $('footH').oninput = (e) => { if (!customSpec) return; setFootH(customSpec, +e.target.value / UNIT_CM); livePreview(); };
   $('footH').onchange = () => onCustomChange();
 }
 if ($('footThick')) {
@@ -1383,7 +1462,7 @@ if ($('footThick')) {
     if (!customSpec) return;
     ensureFoot(customSpec);
     customSpec.footThick = Math.min(FOOT_LIMITS.thick[1], Math.max(FOOT_LIMITS.thick[0], +e.target.value / UNIT_CM));
-    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    livePreview();
   };
   $('footThick').onchange = () => onCustomChange();
 }
@@ -1392,7 +1471,7 @@ if ($('footCarve')) {
     if (!customSpec) return;
     ensureFoot(customSpec);
     customSpec.footCarve = Math.min(FOOT_LIMITS.carve[1], Math.max(FOOT_LIMITS.carve[0], +e.target.value / UNIT_CM));
-    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    livePreview();
   };
   $('footCarve').onchange = () => onCustomChange();
 }
@@ -1402,7 +1481,7 @@ if ($('footStem')) {
     ensureFoot(customSpec);
     const r = Math.max(0.12, customSpec.nodes[0].r);
     customSpec.footStem = Math.min(FOOT_LIMITS.stem[1], Math.max(FOOT_LIMITS.stem[0], (+e.target.value / UNIT_CM / 2) / r));
-    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    livePreview();
   };
   $('footStem').onchange = () => onCustomChange();
 }
@@ -1411,14 +1490,14 @@ if ($('footFlare')) {
     if (!customSpec) return;
     ensureFoot(customSpec);
     customSpec.footFlare = Math.min(FOOT_LIMITS.flare[1], Math.max(FOOT_LIMITS.flare[0], +e.target.value));
-    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    livePreview();
   };
   $('footFlare').onchange = () => onCustomChange();
 }
 $('customWall').oninput = (e) => {
   if (!customSpec) return;
   setWall(customSpec, Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)));
-  rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+  livePreview();
 };
 $('customWall').onchange = () => onCustomChange();
 if ($('wallTaper')) {
@@ -1427,7 +1506,7 @@ if ($('wallTaper')) {
     ensureWall(customSpec);
     customSpec.wallTaper = !!e.target.checked;
     if (!customSpec.wallTaper) setWall(customSpec, customSpec.wall);
-    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    livePreview();
     onCustomChange();
   };
 }
@@ -1437,7 +1516,7 @@ function bindWallZone(id, zone) {
   el.oninput = (e) => {
     if (!customSpec) return;
     setWallZone(customSpec, zone, Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)));
-    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    livePreview();
   };
   el.onchange = () => onCustomChange();
 }
@@ -1450,7 +1529,7 @@ bindWallZone('wallBase', 'base');
     if (id === 'hW') setHandleWidth(customSpec, +$('hW').value);
     else if (id === 'hT') customSpec.handleThick = +$('hT').value;
     else setHandlePlacement(customSpec, +$('hPos').value, +$('hH').value);
-    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    livePreview();
   };
   $(id).onchange = () => onCustomChange();
 });
@@ -1466,9 +1545,8 @@ function readSpoutSliders() {
   $(id).oninput = () => {
     if (!customSpec) return;
     readSpoutSliders();
-    rebuildCustom({ preview: true, skipUi: true });
-    if (customSpec.spout === 'teapot') { updateGizmoDataFromSpec(); placeGizmos(); }
-    syncCustomSliders(); liveCustomStatus();
+    livePreview();
+    if (customSpec.spout === 'teapot') { updateGizmoDataFromSpec(); placeGizmos(); };
   };
   $(id).onchange = () => onCustomChange();
 });
@@ -1715,6 +1793,7 @@ function resize() {
   syncAppSize();
   const w = view.clientWidth, h = view.clientHeight;
   if (w < 1 || h < 1) return;
+  renderer.setPixelRatio(pixelRatioFor(gpuProbe.reduced));
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -1728,15 +1807,19 @@ function loop() {
   requestAnimationFrame(loop);
   if (dirty) uploadTextures();
   const g = glow.v;
-  // kiln glow: lights dim, the pot glows red-orange -> yellow-orange at peak, then cools back
   glowCol.setRGB(1.0, 0.16 + 0.28 * g, 0.03 + 0.06 * g * g);
-  material.userData.uniforms.uGlowColor.value.copy(glowCol);
-  material.userData.uniforms.uGlow.value = g * 0.9;
-  key.intensity = 1.8 * (1 - 0.75 * g);
-  scene.environmentIntensity = 0.85 * (1 - 0.75 * g);
+  if (material.userData.uniforms) {
+    material.userData.uniforms.uGlowColor.value.copy(glowCol);
+    material.userData.uniforms.uGlow.value = g * 0.9;
+  } else {
+    material.emissive.copy(glowCol).multiplyScalar(g * 0.35);
+  }
+  const key0 = gpuProbe.reduced ? 1.15 : 1.8;
+  key.intensity = key0 * (1 - 0.75 * g);
+  if (!gpuProbe.reduced) scene.environmentIntensity = 0.85 * (1 - 0.75 * g);
   scene.background.copy(BG).lerp(BG_KILN, g);
   controls.update();
-  placeGizmos();
+  if (!shaping) placeGizmos();
   renderer.render(scene, camera);
 }
 resize();
@@ -1830,7 +1913,7 @@ window.__sim = {
     return Object.fromEntries(GLAZES.map((g, gi) => { let s = 0; const a = (state.fired || state.thick)[gi]; if (a) for (let i = from; i < to; i++) s += a[i]; return [g.id, +(s / n).toFixed(4)]; }));
   },
   getCustom() { return customSpec ? cloneSpec(customSpec) : null; },
-  setCustom(partial = {}) {
+  setCustom(partial = {}, opts = {}) {
     if (ui.shape !== 'custom') setShape('custom');
     if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return false; }
     if (partial.nodes) customSpec.nodes = partial.nodes.map(p => ({ r: p.r, y: p.y }));
@@ -1856,10 +1939,11 @@ window.__sim = {
     ensureFoot(customSpec);
     if (partial.handleNodes) customSpec.handleNodes = partial.handleNodes.map(p => ({ r: p.r, y: p.y }));
     else if (partial.handle !== undefined && partial.handleNodes === undefined) resetHandleNodes(customSpec);
-    rebuildCustom();
+    rebuildCustom({ preview: !!opts.preview, skipUi: !!opts.preview });
     liveCustomStatus();
     return true;
   },
+  previewCustom(partial = {}) { return this.setCustom(partial, { preview: true }); },
   addNode() {
     if (!customSpec || shapeLocked()) return false;
     if (customSpec.nodes.length >= 2 + MAX_MID) return false;
@@ -2054,6 +2138,12 @@ window.__sim = {
   setSeed(n) { state.fixedSeed = (n === null || n === undefined) ? undefined : n >>> 0; },   // stable seed for tests; null = random per firing
   get seed() { return state.seed; },
   get fireMs() { return state.fireMs; },
+  get fireWallMs() { return fireWallMs; },
+  get lastBuildMs() { return lastBuildMs; },
+  get gpu() { return infoOf(gpuProbe, true); },
+  loseContext() { ctxLost.lose(); },
+  restoreContext() { ctxLost.restore(); },
+  get contextLost() { return ctxLost.lost; },
   frame() { frameCamera(); },
   get composeMs() { return state.composeMs; },
   get dripStats() { return state.dripStats; },
@@ -2080,4 +2170,5 @@ function outerRow(hFrac) {
   const y = hFrac * pot.height; let best = 0, bd = 1e9;
   for (let k = 0; k < pot.rows.potRows; k++) { if (pot.rows.nr[k] <= 0.2) continue; const d = Math.abs(pot.rows.y[k] - y) - pot.rows.r[k] * 0.001; if (d < bd) { bd = d; best = k; } }
   return best;
+}
 }

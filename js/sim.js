@@ -302,6 +302,19 @@ export class GlazeState {
     copy.set(view);
     return copy;
   }
+  _cloneRows(rows, transfers) {
+    if (ArrayBuffer.isView(rows)) {
+      const c = this._copyBuf(rows);
+      transfers.push(c.buffer);
+      return c;
+    }
+    if (rows && typeof rows === 'object') {
+      const o = {};
+      for (const k of Object.keys(rows)) o[k] = this._cloneRows(rows[k], transfers);
+      return o;
+    }
+    return rows;
+  }
   _clonePlain(v) {
     if (ArrayBuffer.isView(v)) return new v.constructor(v);
     if (v && typeof v === 'object') {
@@ -328,7 +341,7 @@ export class GlazeState {
         seed: seed === undefined ? null : seed,
         fixedSeed: this.fixedSeed === undefined ? null : this.fixedSeed,
         height: this.pot.height,
-        rows: this._clonePlain(this.pot.rows),
+        rows: this._cloneRows(this.pot.rows, transfers),
         debugDrips: !!this.debugDrips,
         debugThickness: !!this.debugThickness,
         waxFoot: !!this.waxFoot,
@@ -483,7 +496,12 @@ export class GlazeState {
         } }
         a.set(tmp);
       }
-      if (it % 10 === 9) { onProgress(0.1 + 0.8 * it / ITER); await new Promise(r => setTimeout(r, 0)); }
+      if (this.host) {
+        if (it % 30 === 29) onProgress(0.1 + 0.8 * it / ITER);
+      } else if (it % 20 === 19) {
+        onProgress(0.1 + 0.8 * it / ITER);
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
     applyDrips();
     this.firedStamp = GLAZES.map(() => null); actG.forEach((q, n) => this.firedStamp[q] = stp[n]);
