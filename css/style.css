@@ -45,6 +45,8 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; font: 12px/1.45 var(--font-body); color: var(--text); background: var(--scene-bg); overflow: hidden; user-select: none; -webkit-user-select: none; overscroll-behavior: none; }
+/* UA [hidden] is display:none, but later .slider/.row/flex/grid rules override it. */
+[hidden] { display: none !important; }
 body { display: flex; }
 #panel { width: 292px; flex: none; display: flex; flex-direction: column; padding: 22px 22px 16px; background: var(--panel-bg); border-right: 1px solid var(--panel-border); overflow: hidden; }
 #view { flex: 1; position: relative; min-width: 0; min-height: 0; }
@@ -327,6 +329,9 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     max-height: 22vh;
     max-height: 22dvh;
   }
+  /* A 22vh canvas cannot host the Lite help banner — it covered the whole pot. */
+  body:not(.sheet-collapsed) #gpuNote { display: none; }
+  body:not(.sheet-collapsed) #dimHud { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] .sheet {
     flex: 1 1 0%;
     max-height: none;

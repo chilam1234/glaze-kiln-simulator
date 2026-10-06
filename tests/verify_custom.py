@@ -605,6 +605,28 @@ def run():
         for style in FOOT_STYLES:
             info = apply_foot(page, style)
             check_foot(info, style, failed, 'desktop')
+            vis = page.evaluate('''() => {
+              const ids = ['footStemRow','footFlareRow','footThickRow','footCarveRow'];
+              return Object.fromEntries(ids.map(id => {
+                const el = document.getElementById(id);
+                const d = getComputedStyle(el).display;
+                const r = el.getBoundingClientRect();
+                return [id, { attr: !!el.hidden, display: d, shown: d !== 'none' && r.height > 2 }];
+              }));
+            }''')
+            print(f'desktop slider vis {style}', vis)
+            stem = vis['footStemRow']['shown'] or vis['footFlareRow']['shown']
+            ring = vis['footThickRow']['shown'] or vis['footCarveRow']['shown']
+            if style == 'pedestal':
+                if not vis['footStemRow']['shown'] or not vis['footFlareRow']['shown']:
+                    failed.append(f'desktop {style}: stem/flare should show {vis}')
+            elif stem:
+                failed.append(f'desktop {style}: stem/flare should hide {vis}')
+            if style == 'flat':
+                if vis['footThickRow']['shown'] or vis['footCarveRow']['shown']:
+                    failed.append(f'desktop {style}: thick/carve should hide {vis}')
+            elif not vis['footThickRow']['shown'] or not vis['footCarveRow']['shown']:
+                failed.append(f'desktop {style}: thick/carve should show {vis}')
             page.evaluate('__sim.setView(78, 8)')
             page.wait_for_timeout(280)
             save(page, f'custom-foot-{style}.png', full=False)
@@ -1193,6 +1215,26 @@ def run():
         for style in FOOT_STYLES:
             info = apply_foot(m, style)
             check_foot(info, style, failed, 'mobile')
+            vis_m = m.evaluate('''() => {
+              const ids = ['footStemRow','footFlareRow','footThickRow','footCarveRow'];
+              return Object.fromEntries(ids.map(id => {
+                const el = document.getElementById(id);
+                const d = getComputedStyle(el).display;
+                const r = el.getBoundingClientRect();
+                return [id, { attr: !!el.hidden, display: d, shown: d !== 'none' && r.height > 2 }];
+              }));
+            }''')
+            stem = vis_m['footStemRow']['shown'] or vis_m['footFlareRow']['shown']
+            if style == 'pedestal':
+                if not vis_m['footStemRow']['shown'] or not vis_m['footFlareRow']['shown']:
+                    failed.append(f'mobile {style}: stem/flare should show {vis_m}')
+            elif stem:
+                failed.append(f'mobile {style}: stem/flare should hide {vis_m}')
+            if style == 'flat':
+                if vis_m['footThickRow']['shown'] or vis_m['footCarveRow']['shown']:
+                    failed.append(f'mobile {style}: thick/carve should hide {vis_m}')
+            elif not vis_m['footThickRow']['shown'] or not vis_m['footCarveRow']['shown']:
+                failed.append(f'mobile {style}: thick/carve should show {vis_m}')
             if style == 'pedestal':
                 ped_ui = m.evaluate('''() => {
                   const ids = ['footStem', 'footFlare'];
