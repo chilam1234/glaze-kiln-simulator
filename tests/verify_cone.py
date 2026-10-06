@@ -17,7 +17,7 @@ from playwright.sync_api import sync_playwright
 
 CHROME = '/usr/bin/google-chrome'
 ARGS = ['--use-angle=swiftshader', '--use-gl=angle', '--enable-unsafe-swiftshader',
-        '--ignore-gpu-blocklist', '--enable-webgl']
+        '--ignore-gpu-blocklist', '--enable-webgl', '--enable-precise-memory-info']
 SEED = 20260928
 GLAZES = ('oatmeal', 'seaweed', 'rutile', 'celadon', 'bluemidnight', 'flambe')
 
@@ -69,6 +69,20 @@ def wait_ready(page):
     page.wait_for_timeout(600)
 
 
+def heap_cdp(page):
+    try:
+        sess = page.context.new_cdp_session(page)
+        sess.send('Performance.enable')
+        mets = sess.send('Performance.getMetrics')['metrics']
+        by = {m['name']: m['value'] for m in mets}
+        return {
+            'jsHeapUsedMB': round(by.get('JSHeapUsedSize', 0) / 1e6, 1),
+            'jsHeapTotalMB': round(by.get('JSHeapTotalSize', 0) / 1e6, 1),
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+
 def paint_and_fire(page, glaze, cone):
     page.evaluate('__sim.clear()')
     page.evaluate('__sim.setShape("vase")')
@@ -104,6 +118,10 @@ def run():
         print('atlas', json.dumps(atlas))
         print('smoke', json.dumps(smoke))
         print('startup_nav_ms', t_nav, 'ready_ms', round(t_ready))
+        heap0 = {'perf': atlas.get('heap'), 'cdp': heap_cdp(page)}
+        print('heap_startup_desktop', json.dumps(heap0))
+        if atlas.get('cpuMapsMB', 99) > 5 or atlas.get('liveMaps', 99) != 0:
+            failed.append(f'startup allocated glaze maps: {atlas}')
         if smoke.get('n') != 68:
             failed.append(f'expected 68 glazes, got {smoke.get("n")}')
         if smoke.get('errors'):
@@ -121,15 +139,57 @@ def run():
           for (const id of ids) __sim.setGlaze(id);
         }''')
         programs1 = page.evaluate('() => __sim.programs')
-        print('programs before/after glaze switch', programs0, programs1)
+        atlas_switch = page.evaluate('() => __sim.atlas()')
+        print('programs before/after glaze switch', programs0, programs1, 'maps', atlas_switch.get('liveMaps'))
         if programs1 > programs0:
             failed.append(f'glaze switch recompiled shaders ({programs0} -> {programs1})')
+        if atlas_switch.get('liveMaps', 99) != 0:
+            failed.append(f'setGlaze allocated maps: {atlas_switch}')
+        custom_click = page.evaluate('''() => {
+          const t0 = performance.now();
+          __sim.setShape("custom");
+          return { ms: performance.now() - t0, atlas: __sim.atlas(), programs: __sim.programs };
+        }''')
+        print('custom_click', json.dumps(custom_click))
+        if custom_click['atlas'].get('liveMaps', 99) != 0:
+            failed.append(f'Custom click allocated maps: {custom_click}')
+        if custom_click['programs'] > programs1:
+            failed.append(f'Custom click recompiled shaders ({programs1} -> {custom_click["programs"]})')
+        first_paint = page.evaluate('''() => {
+          __sim.clear();
+          const a = __sim.dabOnce("shino", 0.5, 0.55, 0.08, 0.7);
+          const b = __sim.dabOnce("shino", 0.52, 0.55, 0.08, 0.7);
+          const c = __sim.dabOnce("tenmoku", 0.48, 0.58, 0.08, 0.7);
+          return { first: a, second: b, unused: c, atlas: __sim.atlas() };
+        }''')
+        print('first_paint', json.dumps(first_paint))
+        if first_paint['first']['firstMapMs'] > 50:
+            failed.append(f'first unused glaze alloc {first_paint["first"]["firstMapMs"]}ms > 50ms')
+        if first_paint['unused']['firstMapMs'] > 50:
+            failed.append(f'second unused glaze alloc {first_paint["unused"]["firstMapMs"]}ms > 50ms')
+        six = page.evaluate('''() => {
+          __sim.clear();
+          const ids = ["shino","tenmoku","celadon","oatmeal","rutile","bluemidnight"];
+          for (const id of ids) __sim.pour(id, 0.7, "below", 0.35);
+          return __sim.atlas();
+        }''')
+        heap6 = {'perf': six.get('heap'), 'cdp': heap_cdp(page)}
+        print('atlas_six', json.dumps(six))
+        print('heap_six_desktop', json.dumps(heap6))
+        if six.get('liveMaps', 0) > 6:
+            failed.append(f'typical pot liveMaps {six.get("liveMaps")} > 6')
+        if six.get('cpuMapsMB', 99) > 50:
+            failed.append(f'typical pot cpuMapsMB {six.get("cpuMapsMB")} > 50 (6×6 MB)')
+        page.evaluate('__sim.clear()')
         for cone in (6, 10):
             page.evaluate(f'__sim.setCone({cone})')
             prev = page.evaluate('() => __sim.previewFiredAll()')
-            print('previewFiredAll', prev)
+            atlas_prev = page.evaluate('() => __sim.atlas()')
+            print('previewFiredAll', prev, 'maps', atlas_prev.get('liveMaps'), atlas_prev.get('cpuMapsMB'))
             if prev.get('n') != 68 or prev.get('painted', 0) < 10:
                 failed.append(f'previewFiredAll cone {cone} failed: {prev}')
+            if atlas_prev.get('liveMaps', 0) > 0:
+                failed.append(f'previewFiredAll allocated maps: {atlas_prev}')
         page.evaluate('__sim.clear(); __sim.setCone(6)')
         info = page.evaluate('''() => ({
           cone: __sim.cone,
@@ -180,7 +240,26 @@ def run():
         m.on('console', lambda msg: msg.type == 'error' and errors.append(msg.text))
         m.goto(url, timeout=120000)
         wait_ready(m)
-        m.evaluate('__sim.setCone(10); __sim.setSheet("glaze", true)')
+        phone_boot = m.evaluate('''() => ({
+          ready: performance.now(),
+          atlas: __sim.atlas(),
+        })''')
+        phone_heap = {'perf': phone_boot['atlas'].get('heap'), 'cdp': heap_cdp(m)}
+        print('phone_boot', json.dumps({'ready_ms': round(phone_boot['ready']), 'atlas': phone_boot['atlas']}))
+        print('heap_startup_iphone', json.dumps(phone_heap))
+        if phone_boot['atlas'].get('liveMaps', 99) != 0 or phone_boot['atlas'].get('cpuMapsMB', 99) > 5:
+            failed.append(f'iphone startup allocated maps: {phone_boot["atlas"]}')
+        phone_six = m.evaluate('''() => {
+          const ids = ["shino","tenmoku","celadon","oatmeal","rutile","bluemidnight"];
+          for (const id of ids) __sim.pour(id, 0.7, "below", 0.35);
+          return __sim.atlas();
+        }''')
+        phone_heap6 = {'perf': phone_six.get('heap'), 'cdp': heap_cdp(m)}
+        print('atlas_six_iphone', json.dumps(phone_six))
+        print('heap_six_iphone', json.dumps(phone_heap6))
+        if phone_six.get('cpuMapsMB', 99) > 50:
+            failed.append(f'iphone typical pot cpuMapsMB {phone_six.get("cpuMapsMB")}')
+        m.evaluate('__sim.clear(); __sim.setCone(10); __sim.setSheet("glaze", true)')
         m.wait_for_timeout(300)
         m.screenshot(path=os.path.join(OUT, 'mobile_cone_toggle.png'), full_page=True)
         try:

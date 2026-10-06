@@ -75,6 +75,10 @@ export function smokeGlazes() {
   return { n: GLAZES.length, cones, errors };
 }
 const NG = G.length, RUTILE_GOLD = hexLin('#9a6630'), RUTILE_CREAM = hexLin('#d9c9a0');
+// Per-glaze CPU maps are ~6 MB each (1024² Float32 thick + Uint16 stamp). Keep only
+// what is on the pot, with a soft LRU cap so a 68-glaze picker cannot blow iPhone Safari.
+export const MAP_CAP = 12;
+const MAP_POOL = 2;
 const nz = v => clamp01((v - 0.5) * 3.2 + 0.5);   // stretch fbm (clustered around 0.5) to ~0..1
 export const GLAZE_INDEX = Object.fromEntries(GLAZES.map((g, i) => [g.id, i]));
 const PAIR_L = {};
@@ -100,8 +104,12 @@ export class GlazeState {
   constructor(opts = {}) {
     // host: the kiln thread. It receives maps per firing and never paints, so it skips the full atlas.
     this.host = !!opts.host;
-    this.thick = this.host ? [] : GLAZES.map(() => new Float32Array(N));
-    this.stamp = this.host ? [] : GLAZES.map(() => new Uint16Array(N));
+    this.thick = [];
+    this.stamp = [];
+    this._live = [];
+    this._poolT = [];
+    this._poolS = [];
+    this._firstMapMs = 0;
     this.fired = null;            // post-flow thickness arrays when fired
     this.strokeBuf = new Float32Array(this.host ? 0 : N);
     this.strokeId = 1;
@@ -121,6 +129,76 @@ export class GlazeState {
     this.lastSetPotTimes = null;
     this._composed = false;
     this._painted = false;
+  }
+  // Allocate one glaze's CPU maps on first paint. Empty slots stay undefined so compose/fire skip them.
+  _ensureMap(gi) {
+    if (this.host) return;
+    if (this.thick[gi]) { this._touch(gi); return; }
+    const t0 = performance.now();
+    this._evict();
+    let T = this._poolT.pop(), S = this._poolS.pop();
+    if (T) { T.fill(0); S.fill(0); }
+    else { T = new Float32Array(N); S = new Uint16Array(N); }
+    this.thick[gi] = T;
+    this.stamp[gi] = S;
+    this._live.push(gi);
+    this._firstMapMs = performance.now() - t0;
+  }
+  _touch(gi) {
+    const i = this._live.indexOf(gi);
+    if (i >= 0) this._live.splice(i, 1);
+    this._live.push(gi);
+  }
+  _mapOnPot(gi) {
+    const a = this.thick[gi];
+    if (!a) return false;
+    for (let i = 0; i < a.length; i += 29) if (a[i] > 0.003) return true;
+    return false;
+  }
+  _drop(gi) {
+    const T = this.thick[gi], S = this.stamp[gi];
+    if (!T) return;
+    this.thick[gi] = undefined;
+    this.stamp[gi] = undefined;
+    const i = this._live.indexOf(gi);
+    if (i >= 0) this._live.splice(i, 1);
+    if (T && this._poolT.length < MAP_POOL) { this._poolT.push(T); this._poolS.push(S); }
+  }
+  _evict() {
+    if (this._live.length < MAP_CAP) return;
+    for (let i = 0; i < this._live.length && this._live.length >= MAP_CAP; ) {
+      const q = this._live[i];
+      if (!this._mapOnPot(q)) this._drop(q);
+      else i++;
+    }
+  }
+  _releaseMaps() {
+    const live = this._live.slice();
+    for (const q of live) this._drop(q);
+    this.thick = [];
+    this.stamp = [];
+    this._live = [];
+  }
+  mapStats() {
+    let live = 0, thickBytes = 0, stampBytes = 0, firedBytes = 0;
+    for (let q = 0; q < this.thick.length; q++) {
+      const a = this.thick[q], s = this.stamp[q];
+      if (a) { live++; thickBytes += a.byteLength; }
+      if (s) stampBytes += s.byteLength;
+    }
+    if (this.fired) for (const a of this.fired) if (a) firedBytes += a.byteLength;
+    if (this.firedStamp) for (const a of this.firedStamp) if (a) firedBytes += a.byteLength;
+    let noiseBytes = 0;
+    for (const k of ['nLow', 'nMid', 'nLow2', 'streak', 'cellE', 'cellId']) if (this[k]) noiseBytes += this[k].byteLength;
+    const composeBytes = (this.color ? this.color.byteLength : 0) + (this.props ? this.props.byteLength : 0)
+      + (this.fx ? this.fx.byteLength : 0) + (this.height ? this.height.byteLength : 0)
+      + (this.strokeBuf ? this.strokeBuf.byteLength : 0);
+    return {
+      live, cap: MAP_CAP, firstMapMs: +this._firstMapMs.toFixed(2),
+      thickBytes, stampBytes, firedBytes, noiseBytes, composeBytes,
+      cpuMapsMB: +((thickBytes + stampBytes) / 1e6).toFixed(1),
+      cpuTexMB: +((thickBytes + stampBytes + firedBytes + noiseBytes + composeBytes) / 1e6).toFixed(1),
+    };
   }
   // Start the kiln thread early so the first Fire does not pay for module load.
   warm() { return this._ensureWorker().then(w => !!w); }
@@ -146,8 +224,10 @@ export class GlazeState {
         prevStamp[q] = Uint16Array.from(this.stamp[q]);
       }
       times.clone = performance.now() - tc;
-      for (const a of this.thick) a.fill(0);
-      for (const a of this.stamp) a.fill(0);
+      for (let q = 0; q < this.thick.length; q++) {
+        if (this.thick[q]) this.thick[q].fill(0);
+        if (this.stamp[q]) this.stamp[q].fill(0);
+      }
       const tr = performance.now();
       this._remapGlaze(prev, prevThick, prevStamp, active);
       times.remap = performance.now() - tr;
@@ -185,6 +265,7 @@ export class GlazeState {
     const out = [];
     for (let q = 0; q < this.thick.length; q++) {
       const a = this.thick[q];
+      if (!a) continue;
       let hit = false;
       for (let i = 0; i < a.length; i += 29) if (a[i] > 0.003) { hit = true; break; }
       if (hit) out.push(q);
@@ -227,8 +308,10 @@ export class GlazeState {
     }
     const glazes = active && active.length ? active : Object.keys(thick).map(Number);
     for (const g of glazes) {
-      const srcT = thick[g], srcS = stamp[g], dstT = this.thick[g], dstS = this.stamp[g];
+      const srcT = thick[g], srcS = stamp[g];
       if (!srcT || !srcS) continue;
+      this._ensureMap(g);
+      const dstT = this.thick[g], dstS = this.stamp[g];
       for (let k = 0; k < nR.potRows; k++) {
         const o = map[k] * W, n = k * W;
         dstT.set(srcT.subarray(o, o + W), n);
@@ -248,15 +331,14 @@ export class GlazeState {
     }
   }
   clear(opts = {}) {
-    for (const a of this.thick) a.fill(0);
-    for (const a of this.stamp) a.fill(0);
-    this.fired = null; this.mode = 'raw'; this.strokeId = 1;
+    this._releaseMaps();
+    this.fired = null; this.firedStamp = null; this.mode = 'raw'; this.strokeId = 1;
     if (this._recording) { this.ops = []; this.opsStale = false; }
     this._painted = false;
     if (!opts.skipCompose) this.composeRaw(0, H - 1);
   }
   stats() {
-    return GLAZES.map((g, gi) => { let s = 0; const a = this.thick[gi]; for (let i = 0; i < N; i++) s += a[i]; return [g.id, +(s / N).toFixed(5)]; });
+    return GLAZES.map((g, gi) => { let s = 0; const a = this.thick[gi]; if (a) for (let i = 0; i < N; i++) s += a[i]; return [g.id, +(s / N).toFixed(5)]; });
   }
   // ---------- painting ----------
   beginStroke(quiet) {
@@ -265,6 +347,7 @@ export class GlazeState {
   }
   dab(u, v, radius, gi, amount) {
     this._painted = true;
+    this._ensureMap(gi);
     if (this._recording) this.ops.push({ op: 'dab', glaze: GLAZES[gi].id, u: q4(u), v: q4(v), r: q4(radius), t: q4(amount) });
     const R = this.pot.rows, ds = R.ds, kc = Math.min(H - 1, Math.floor(v * H)), sc = v * H;
     const kr = Math.ceil(radius / ds) + 1, T = this.thick[gi], S = this.stamp[gi], sb = this.strokeBuf;
@@ -303,6 +386,7 @@ export class GlazeState {
   }
   pour(gi, h, mode, amount) {
     this._painted = true;
+    this._ensureMap(gi);
     if (this._recording) this.ops.push({ op: 'pour', glaze: GLAZES[gi].id, h: q4(h), mode, t: q4(amount) });
     this.beginStroke(true);
     const R = this.pot.rows, yh = h >= 0.99 ? this.pot.height + 0.2 : h <= 0.01 ? -0.2 : h * this.pot.height, T = this.thick[gi], S = this.stamp[gi];
@@ -323,14 +407,19 @@ export class GlazeState {
   // ---------- raw (unfired) composition ----------
   composeRaw(k0, k1) {
     if (this.mode !== 'raw') return;
-    const R = this.pot.rows, C = this.color, P = this.props, F = this.fx, Hh = this.height, ng = G.length;
-    const idx = new Int32Array(ng);
+    const R = this.pot.rows, C = this.color, P = this.props, F = this.fx, Hh = this.height;
+    const live = this._live.length ? this._live : this._activeGlazes();
+    const nLive = live.length;
+    const idx = new Int32Array(Math.max(1, nLive));
     for (let k = k0; k <= k1; k++) for (let j = 0; j < W; j++) {
       const i = k * W + j, o = i * 4;
       const nl = this.nLow[i], nm = this.nMid[i];
       let r = CLAY_RAW_A[0] + (CLAY_RAW_B[0] - CLAY_RAW_A[0]) * nl, g = CLAY_RAW_A[1] + (CLAY_RAW_B[1] - CLAY_RAW_A[1]) * nl, b = CLAY_RAW_A[2] + (CLAY_RAW_B[2] - CLAY_RAW_A[2]) * nl;
       let n = 0, tot = 0;
-      for (let q = 0; q < ng; q++) if (this.thick[q][i] > 0.004) { idx[n++] = q; tot += this.thick[q][i]; }
+      for (let li = 0; li < nLive; li++) {
+        const q = live[li], a = this.thick[q];
+        if (a && a[i] > 0.004) { idx[n++] = q; tot += a[i]; }
+      }
       // sort by paint order (bottom first)
       for (let a = 1; a < n; a++) { const x = idx[a]; let c = a - 1; while (c >= 0 && this.stamp[idx[c]][i] > this.stamp[x][i]) { idx[c + 1] = idx[c]; c--; } idx[c + 1] = x; }
       for (let a = 0; a < n; a++) {
@@ -424,7 +513,9 @@ export class GlazeState {
   _packFire(seed) {
     const active = [];
     for (let q = 0; q < G.length; q++) {
-      let s = 0; const a = this.thick[q];
+      const a = this.thick[q];
+      if (!a) continue;
+      let s = 0;
       for (let i = 0; i < N; i += 7) s += a[i];
       if (s > 0) active.push(q);
     }
@@ -496,7 +587,13 @@ export class GlazeState {
     this.seed = (seed ?? this.fixedSeed ?? Math.floor(Math.random() * 0xffffffff)) >>> 0;
     const R = this.pot.rows;
     const act = [], actG = [];
-    for (let q = 0; q < G.length; q++) { let s = 0; const a = this.thick[q]; for (let i = 0; i < N; i += 7) s += a[i]; if (s > 0) { act.push(Float32Array.from(a)); actG.push(q); } }
+    for (let q = 0; q < G.length; q++) {
+      const a = this.thick[q];
+      if (!a) continue;
+      let s = 0;
+      for (let i = 0; i < N; i += 7) s += a[i];
+      if (s > 0) { act.push(Float32Array.from(a)); actG.push(q); }
+    }
     const A = act.length;
     const fired = GLAZES.map(() => null); actG.forEach((q, n) => fired[q] = act[n]);
     const fl = actG.map(q => G[q].fluidity);
@@ -519,7 +616,7 @@ export class GlazeState {
     //     thickness of the covered part) for many steps per glaze. Glaze thickens toward the foot, bowl bottoms and the
     //     lower edge of a band, and thins high on walls; mapped back as a per-row ratio. The 2D passes add local runs.
     const T0 = cone10 ? 0.34 : 0.42;
-    const stpAll = actG.map(q => Uint16Array.from(this.stamp[q]));
+    const stpAll = actG.map(q => this.stamp[q] ? Uint16Array.from(this.stamp[q]) : new Uint16Array(N));
     for (let n = 0; n < A; n++) {
       const a = act[n], f = new Float64Array(H), tc = new Float64Array(H);
       for (let k = 0; k < H; k++) { let s1 = 0, c1 = 0; for (let j = 0; j < W; j++) { const t = a[k * W + j]; if (t > 0.05) { s1 += t; c1++; } } f[k] = c1 / W; tc[k] = c1 ? s1 / c1 : 0; }
@@ -782,10 +879,14 @@ export class GlazeState {
 
   composeFired() {
     const R = this.pot.rows, C = this.color, P = this.props, F = this.fx, Hh = this.height, ng = G.length, fired = this.fired;
+    if (!fired) return;
+    const liveF = [];
+    for (let q = 0; q < fired.length; q++) if (fired[q]) liveF.push(q);
+    const nF = liveF.length;
     const te = new Float32Array(ng), col = [0, 0, 0, 0, 0];
     // blurred coverage for flashing on bare clay near glaze edges
     const cov = new Float32Array(N), tmp = new Float32Array(N);
-    for (let i = 0; i < N; i++) { let s = 0; for (let q = 0; q < ng; q++) if (fired[q]) s += fired[q][i]; cov[i] = s > 0.03 ? 1 : 0; }
+    for (let i = 0; i < N; i++) { let s = 0; for (let li = 0; li < nF; li++) s += fired[liveF[li]][i]; cov[i] = s > 0.03 ? 1 : 0; }
     const rad = 12;
     for (let k = 0; k < H; k++) { let s = 0; for (let d = -rad; d <= rad; d++) s += cov[k * W + ((d + W) % W)]; for (let j = 0; j < W; j++) { tmp[k * W + j] = s / (2 * rad + 1); s += cov[k * W + ((j + rad + 1) % W)] - cov[k * W + ((j - rad + W) % W)]; } }
     for (let j = 0; j < W; j++) for (let k = 0; k < H; k++) { let s = 0, c = 0; for (let d = -rad; d <= rad; d += 3) { const kk = k + d; if (kk >= 0 && kk < H) { s += tmp[kk * W + j]; c++; } } cov[k * W + j] = s / c; }
@@ -800,20 +901,22 @@ export class GlazeState {
         const dk = 0.35 * smooth(0.45, 0.75, nl2) * nm; cr += (CLAY_F_DARK[0] - cr) * dk; cg += (CLAY_F_DARK[1] - cg) * dk; cb += (CLAY_F_DARK[2] - cb) * dk;
         const fla = 0.3 * smooth(0.02, 0.5, cov[i]); cr += (CLAY_FLASH[0] - cr) * fla; cg += (CLAY_FLASH[1] - cg) * fla; cb += (CLAY_FLASH[2] - cb) * fla;
         let T = 0, top = -1, topS = -1, n = 0;
-        for (let q = 0; q < ng; q++) {
-          const a = fired[q]; te[q] = 0; if (!a) continue; const t = a[i]; if (t < 0.006) continue;
+        for (let li = 0; li < nF; li++) {
+          const q = liveF[li], a = fired[q]; te[q] = 0; const t = a[i]; if (t < 0.006) continue;
           const g = G[q];
           te[q] = t * Math.max(0.05, 1 - g.breakAmt * 0.85 * E) * (1 + g.poolAmt * 1.3 * Cv);
           if (g.id === 'shino') te[q] *= 0.45 + 1.0 * nl2;
           else if (g.id === 'ash') te[q] *= 0.6 + 0.8 * smooth(0.25, 0.8, sk);   // ash: glassy green rivulets between drier brown   // shino: uneven application reads as orange/white mottling
           T += te[q]; n++;
-          let s = this.firedStamp[q][i]; if (s === 0) s = 30000;   // no stamp = it flowed here during the firing, so it lies over the painted coats (drip deposits are > 30000)
+          const st = this.firedStamp && this.firedStamp[q];
+          let s = st ? st[i] : 30000; if (s === 0) s = 30000;   // no stamp = it flowed here during the firing, so it lies over the painted coats (drip deposits are > 30000)
           if (s > topS || (s === topS && te[q] > te[top])) { topS = s; top = q; }
         }
         let mtlO = 0, r = cr, g = cg, b = cb, rough = 0.74, cc = 0, crk = 0, crkF = 0, crkT = 0, spk = 1, h = 0;
         if (T > 0.006) {
           let wr = 0, wg = 0, wb = 0, ws = 0, wsC = 0, tR = 0, tG = 0, tB = 0, tW = 0, ro = 0, roU = 0, roT = 0, tr = 1, cK = 0, cF = 0, cT = 0, sp = 0, sec = -1, secT = 0, mtl = 0;
-          for (let q = 0; q < ng; q++) {
+          for (let li = 0; li < nF; li++) {
+            const q = liveF[li];
             const t = te[q]; if (t <= 0) continue;
             if (q !== top && t > secT) { secT = t; sec = q; }
             // a thin top coat over another glaze reads as a translucent veil of its *body* colour (not its bare-thin colour), fading by weight
@@ -946,23 +1049,44 @@ export class GlazeState {
   }
   // Load every glaze palette at the current cone and composite a stripe of each. Used by tests;
   // skips gravity flow so 68 glazes can be checked without a multi-minute kiln run.
+  // Palettes are written directly — never allocate 68 thickness maps.
   previewFiredAll() {
+    const t0 = performance.now();
     const ng = G.length;
-    this.fired = GLAZES.map(() => null);
-    this.firedStamp = GLAZES.map(() => null);
-    const stripe = Math.max(4, Math.floor(W / Math.max(1, ng)));
-    for (let q = 0; q < ng; q++) {
-      const a = new Float32Array(N), st = new Uint16Array(N);
-      const j0 = (q * stripe) % W, j1 = Math.min(W, j0 + Math.max(3, stripe - 1));
-      for (let k = Math.floor(H * 0.12); k < Math.floor(H * 0.72); k++) {
-        for (let j = j0; j < j1; j++) { const i = k * W + j; a[i] = 0.7; st[i] = 1; }
-      }
-      this.fired[q] = a; this.firedStamp[q] = st;
+    const C = this.color, P = this.props, F = this.fx, Hh = this.height;
+    const nl = this.nLow;
+    for (let i = 0; i < N; i++) {
+      const o = i * 4, n0 = nl ? nl[i] : 0.5;
+      C[o] = toS(CLAY_F_A[0] + (CLAY_F_B[0] - CLAY_F_A[0]) * n0);
+      C[o + 1] = toS(CLAY_F_A[1] + (CLAY_F_B[1] - CLAY_F_A[1]) * n0);
+      C[o + 2] = toS(CLAY_F_A[2] + (CLAY_F_B[2] - CLAY_F_A[2]) * n0);
+      C[o + 3] = 255;
+      P[o] = 0; P[o + 1] = 190; P[o + 2] = 0; P[o + 3] = 255;
+      F[o] = 0; F[o + 1] = 0; F[o + 2] = 80; F[o + 3] = 0;
+      Hh[o] = 0; Hh[o + 1] = 0; Hh[o + 2] = 0; Hh[o + 3] = 255;
     }
+    const stripe = Math.max(4, Math.floor(W / Math.max(1, ng)));
+    const col = [0, 0, 0, 0, 0];
+    const k0 = Math.floor(H * 0.12), k1 = Math.floor(H * 0.72);
+    for (let q = 0; q < ng; q++) {
+      sampleStops(q, 0.7, col);
+      const r = toS(col[0]), g = toS(col[1]), b = toS(col[2]), rough = toS(col[4]);
+      const j0 = (q * stripe) % W, j1 = Math.min(W, j0 + Math.max(3, stripe - 1));
+      for (let k = k0; k < k1; k++) {
+        for (let j = j0; j < j1; j++) {
+          const o = (k * W + j) * 4;
+          C[o] = r; C[o + 1] = g; C[o + 2] = b; C[o + 3] = 255;
+          P[o] = 200; P[o + 1] = rough; P[o + 2] = 0; P[o + 3] = 255;
+          Hh[o] = 80; Hh[o + 1] = 80; Hh[o + 2] = 80; Hh[o + 3] = 255;
+        }
+      }
+    }
+    this.fired = null;
+    this.firedStamp = null;
     this.mode = 'fired';
-    this.composeFired();
+    this.composeMs = performance.now() - t0;
+    this.onUpload();
     let painted = 0;
-    const C = this.color;
     for (let i = 3; i < C.length; i += 97) if (C[i]) painted++;
     return { n: ng, cone: fireCone, painted, composeMs: this.composeMs };
   }

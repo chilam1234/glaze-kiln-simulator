@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes } from './sim.js';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js';
 import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
 import { makePotMaterial, makeSimplePotMaterial } from './material.js';
 import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js';
@@ -2564,17 +2564,40 @@ window.__sim = {
   previewFiredAll() { return state.previewFiredAll(); },
   get programs() { return (renderer.info && renderer.info.programs && renderer.info.programs.length) || 0; },
   atlas() {
-    const ng = GLAZES.length, n = TEX_W * TEX_H;
+    const n = TEX_W * TEX_H;
     const gpu = 4 * n * 4;
-    const cpuThick = ng * n * 4;
-    const cpuStamp = ng * n * 2;
+    const ms = state.mapStats();
+    const cpuThick = ms.thickBytes, cpuStamp = ms.stampBytes;
     return {
-      glazes: ng, texW: TEX_W, texH: TEX_H,
+      glazes: GLAZES.length, liveMaps: ms.live, mapCap: MAP_CAP,
+      texW: TEX_W, texH: TEX_H,
       gpuAtlasBytes: gpu, gpuAtlasMB: +(gpu / 1e6).toFixed(2),
       cpuThickBytes: cpuThick, cpuStampBytes: cpuStamp,
       cpuMapsMB: +((cpuThick + cpuStamp) / 1e6).toFixed(1),
+      cpuTexMB: ms.cpuTexMB,
       totalTexMB: +((gpu + cpuThick + cpuStamp) / 1e6).toFixed(1),
+      firstMapMs: ms.firstMapMs,
+      heap: this.heap(),
     };
+  },
+  heap() {
+    const m = (typeof performance !== 'undefined' && performance.memory) ? performance.memory : null;
+    return m ? {
+      usedMB: +(m.usedJSHeapSize / 1e6).toFixed(1),
+      totalMB: +(m.totalJSHeapSize / 1e6).toFixed(1),
+      limitMB: +(m.jsHeapSizeLimit / 1e6).toFixed(1),
+    } : null;
+  },
+  mapStats() { return state.mapStats(); },
+  dabOnce(id, u = 0.5, v = 0.55, r = 0.08, t) {
+    const gi = GLAZE_INDEX[id];
+    if (gi == null) return null;
+    if (id) { ui.glaze = id; const g = GLAZES[gi]; if (g) ui.glazeFam = g.family; }
+    const amt = t != null ? t : thickness[id];
+    const t0 = performance.now();
+    state.beginStroke();
+    state.dab(u, v, r, gi, amt);
+    return { ms: +(performance.now() - t0).toFixed(2), firstMapMs: state._firstMapMs, liveMaps: state.mapStats().live };
   },
   // Bytes the pot will draw. `bound` is false when a firing swapped in new maps and the textures stayed on the old ones.
   shown() {
