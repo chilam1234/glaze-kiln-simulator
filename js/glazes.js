@@ -300,7 +300,7 @@ export const PAIRS = {
   'tenmoku|matte': { color: '#6a3a20', halo: '#c9a27a', strength: 0.5 },
   // AMACO layering photos: olive-green melt of midnight over honey; oxblood band of flambe over tuscan blue
   'bluemidnight|amber': { color: '#4e6740', halo: '#e0c078', strength: 0.82, cover: 0.42 },
-  'flambe|tuscanblue': { color: '#5a2048', halo: '#dce6f0', strength: 0.78, cover: 0.38 },
+  'flambe|tuscanblue': { color: '#7a2438', halo: '#d4e4f0', strength: 0.7, cover: 0.18 },
   'moonriver|tuscanblue': { color: '#6a8aaa', halo: '#d4c8c0', strength: 0.55, cover: 0.4 },
   'satmetal|bluemidnight': { color: '#4a5050', halo: '#8a9090', strength: 0.55, cover: 0.55 },
   'palladium|bluemidnight': { color: '#6a7080', halo: '#c8ccd0', strength: 0.5, cover: 0.5 },

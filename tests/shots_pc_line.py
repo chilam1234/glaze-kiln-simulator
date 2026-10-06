@@ -95,10 +95,21 @@ with sync_playwright() as pw:
     if programs1 > programs0:
         print('FAIL: glaze switch recompiled'); fail = True
     page.evaluate('__sim.setSheet("glaze", false)')
+    page.evaluate('''() => {
+      const sheet = document.getElementById('sheet');
+      const sec = document.querySelector('#sheet > [data-sheet="glaze"]');
+      if (sheet && sec) sheet.scrollTop = sec.offsetTop;
+    }''')
+    page.click('#glazeFams button[data-fam="dark"]')
     page.wait_for_timeout(250)
     save(page, 'pc-picker-desktop.png', full=False)
     page.fill('#glazeSearch', 'PC-12')
     page.wait_for_timeout(200)
+    page.evaluate('''() => {
+      const sheet = document.getElementById('sheet');
+      const sec = document.querySelector('#sheet > [data-sheet="glaze"]');
+      if (sheet && sec) sheet.scrollTop = sec.offsetTop;
+    }''')
     save(page, 'pc-picker-desktop-search.png', full=False)
     page.fill('#glazeSearch', '')
     page.evaluate('__sim.setGlaze("tuscanblue")')
@@ -111,19 +122,34 @@ with sync_playwright() as pw:
     m.goto(url)
     m.wait_for_function('window.__sim && window.__sim.state === "raw"', timeout=120000)
     m.evaluate('__sim.setSheet("glaze", false)')
+    m.click('#glazeFams button[data-fam="dark"]')
     m.wait_for_timeout(400)
     layout = m.evaluate('''() => {
       const fire = document.getElementById('fireBtn').getBoundingClientRect();
+      const unfire = document.getElementById('unfireBtn').getBoundingClientRect();
       const tabs = document.getElementById('mobileBar').getBoundingClientRect();
       const sheet = document.getElementById('sheet').getBoundingClientRect();
-      const glazes = document.getElementById('glazes').getBoundingClientRect();
-      return { fire, tabs, sheet, glazes, n: document.querySelectorAll("button.glaze:not([hidden])").length,
-               fams: document.querySelectorAll("#glazeFams button").length };
+      const search = document.getElementById('glazeSearch').getBoundingClientRect();
+      const chips = [...document.querySelectorAll('button.glaze:not([hidden])')].map(el => el.getBoundingClientRect());
+      const overlap = chips.filter(c => c.bottom > fire.top + 2 && c.top < unfire.bottom);
+      return {
+        fire: { top: fire.top, bottom: fire.bottom, height: fire.height },
+        tabs: { top: tabs.top, bottom: tabs.bottom, height: tabs.height },
+        sheet: { top: sheet.top, bottom: sheet.bottom, height: sheet.height },
+        search: { top: search.top, bottom: search.bottom },
+        n: chips.length,
+        fams: document.querySelectorAll('#glazeFams button').length,
+        overlap: overlap.length,
+        lastChipBottom: chips.length ? chips[chips.length - 1].bottom : 0,
+      };
     }''')
-    print('phone layout', json.dumps({k: {kk: round(v[kk]) for kk in ('top','bottom','height') if kk in v} if isinstance(v, dict) and 'top' in v else v for k,v in layout.items()}))
-    if layout['sheet']['bottom'] > layout['fire']['top'] + 2:
-        # sheet should not cover fire; allow a couple px
-        print('WARN sheet vs fire', layout['sheet']['bottom'], layout['fire']['top'])
+    print('phone layout', json.dumps({k: ({kk: round(v[kk]) for kk in v} if isinstance(v, dict) else v) for k,v in layout.items()}))
+    if layout['sheet']['bottom'] > layout['fire']['top'] + 4:
+        print('FAIL sheet covers fire', layout['sheet']['bottom'], layout['fire']['top']); fail = True
+    if layout['sheet']['top'] + 2 < layout['tabs']['bottom'] and layout['search']['top'] < layout['tabs']['bottom'] - 4:
+        print('FAIL search under tabs', layout['search'], layout['tabs']); fail = True
+    if layout['overlap']:
+        print('FAIL chips overlap fire bar', layout['overlap']); fail = True
     save(m, 'pc-picker-phone.png', full=False)
     m.fill('#glazeSearch', 'flambe')
     m.wait_for_timeout(200)
@@ -131,6 +157,7 @@ with sync_playwright() as pw:
     m.close(); ctx.close()
 
     # --- fired pot with several new glazes ---
+    page.evaluate('() => { const n = document.getElementById("gpuNote"); if (n) n.hidden = true; }')
     page.evaluate('__sim.clear()')
     page.evaluate('__sim.setShape("vase")')
     page.wait_for_timeout(300)
@@ -149,14 +176,14 @@ with sync_playwright() as pw:
     page.locator('#view').screenshot(path=os.path.join(OUT, 'pc-fired-new-glazes-view.png'))
     shutil.copy2(os.path.join(OUT, 'pc-fired-new-glazes-view.png'), os.path.join(ART, 'pc-fired-new-glazes-view.png'))
 
-    def fire_combo(top, under, name):
+    def fire_combo(top, under, name, top_h=0.48, under_h=0.76):
         if page.evaluate('() => __sim.state') == 'fired':
             page.evaluate('__sim.unfire()')
         page.evaluate('__sim.clear()')
         page.evaluate('__sim.setShape("vase")')
         page.wait_for_timeout(250)
-        page.evaluate(f'__sim.pour("{under}", 0.76, "below", 0.85)')
-        page.evaluate(f'__sim.pour("{top}", 0.48, "above", 0.8)')
+        page.evaluate(f'__sim.pour("{under}", {under_h}, "below", 0.85)')
+        page.evaluate(f'__sim.pour("{top}", {top_h}, "above", 0.8)')
         page.evaluate(f'__sim.setSeed({SEED})')
         page.click('#fireBtn')
         page.wait_for_function('__sim.state === "fired"', timeout=240000)
@@ -169,9 +196,9 @@ with sync_playwright() as pw:
         return dest
 
     page.evaluate('__sim.unfire()')
-    fire_combo('bluemidnight', 'amber', 'pc-combo-12-over-68.png')
+    fire_combo('bluemidnight', 'amber', 'pc-combo-12-over-68.png', top_h=0.5, under_h=0.78)
     page.evaluate('__sim.unfire()')
-    fire_combo('flambe', 'tuscanblue', 'pc-combo-71-over-18.png')
+    fire_combo('flambe', 'tuscanblue', 'pc-combo-71-over-18.png', top_h=0.58, under_h=0.86)
 
     ours12 = Image.open(os.path.join(OUT, 'pc-combo-12-over-68.png')).convert('RGB')
     ours71 = Image.open(os.path.join(OUT, 'pc-combo-71-over-18.png')).convert('RGB')

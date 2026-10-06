@@ -354,10 +354,12 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     overflow-x: hidden;
     overflow-y: auto;
   }
-  /* Glaze sheet: the list needs the room above the fire bar, or the chips sit under Cone and Fire. */
+  /* Glaze sheet: same drawer as Pot so the chips scroll above Cone / Fire, never under them. */
   body:not(.sheet-collapsed)[data-sheet="glaze"] #panel {
     max-height: none;
     flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] #view {
     flex: 0 0 22vh;
@@ -369,7 +371,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     max-height: 22dvh;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet {
-    flex: 1 1 auto;
+    flex: 1 1 0%;
     max-height: none;
     min-height: 0;
     overflow-x: hidden;
@@ -396,13 +398,14 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] .cloud h2,
-  body:not(.sheet-collapsed)[data-sheet="glaze"] #cloudWho { display: none; }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] .cloud { padding-top: 4px; }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] .credit { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .credit,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .cloud { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] .mobile-bar,
   body:not(.sheet-collapsed)[data-sheet="pot"] .actions,
-  body:not(.sheet-collapsed)[data-sheet="pot"] #status {
+  body:not(.sheet-collapsed)[data-sheet="pot"] #status,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .mobile-bar,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .actions,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #status {
     flex: none;
     position: relative;
     z-index: 2;
