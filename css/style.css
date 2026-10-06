@@ -368,6 +368,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="pot"][data-shape-group="pot"]:has(#customOpts:not([hidden])) #shapes,
   body:not(.sheet-collapsed)[data-sheet="pot"][data-shape-group="pot"]:has(#customOpts:not([hidden])) .sheet > [data-sheet="pot"] > h2 { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="pot"] .node-row { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="pot"].active {
     display: grid;
     grid-template-columns: 1fr 1fr;
     column-gap: 10px;
