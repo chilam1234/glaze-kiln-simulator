@@ -178,7 +178,7 @@ def run_on(page, label, touch=False):
 with sync_playwright() as pw:
     try:
         wk = pw.webkit.launch(headless=True)
-        ctx = wk.new_context(**pw.devices['iPhone 13'], has_touch=True)
+        ctx = wk.new_context(**pw.devices['iPhone 13'])
         page = ctx.new_page()
         page.on('pageerror', lambda e: errors.append(f'webkit: {e}'))
         page.goto(url, timeout=120000)
@@ -188,7 +188,7 @@ with sync_playwright() as pw:
         check(False, f'webkit run failed: {e}')
 
     browser = pw.chromium.launch(executable_path=CHROME, headless=True, args=ARGS)
-    ctx = browser.new_context(**pw.devices['iPhone 13'], has_touch=True)
+    ctx = browser.new_context(**pw.devices['iPhone 13'])
     page = ctx.new_page()
     page.on('pageerror', lambda e: errors.append(f'chromium-iphone: {e}'))
     page.goto(url, timeout=120000)
