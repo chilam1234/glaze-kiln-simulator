@@ -99,33 +99,57 @@ export function decideLite(pref, gpu, frame) {
 }
 
 export function probeGpu() {
-  const canvas = document.createElement('canvas');
-  canvas.setAttribute('data-engine', 'glaze-kiln');
-  const aa = wantAntialias();
-  const attempts = [];
-  if (aa) attempts.push({ kind: 'webgl2', caveat: true, antialias: true });
-  attempts.push(
+  const probe = document.createElement('canvas');
+  const attempts = [
     { kind: 'webgl2', caveat: true, antialias: false },
     { kind: 'webgl2', caveat: false, antialias: false },
     { kind: 'webgl', caveat: true, antialias: false },
     { kind: 'webgl', caveat: false, antialias: false },
+  ];
+  let probeGl = null, probeUsed = null;
+  for (const a of attempts) {
+    probeGl = tryContext(probe, a.kind, a.caveat, a.antialias);
+    if (probeGl) { probeUsed = a; break; }
+  }
+  const name = rendererName(probeGl);
+  const classif = classifyRenderer(name.vendor, name.renderer);
+  const webgl2 = !!(probeGl && typeof WebGL2RenderingContext !== 'undefined' && probeGl instanceof WebGL2RenderingContext);
+
+  const canvas = document.createElement('canvas');
+  canvas.setAttribute('data-engine', 'glaze-kiln');
+  const aa = webgl2 && !classif.software && wantAntialias();
+  const liveAttempts = [];
+  if (aa) liveAttempts.push({ kind: 'webgl2', caveat: !classif.software, antialias: true });
+  liveAttempts.push(
+    { kind: 'webgl2', caveat: !classif.software, antialias: false },
+    { kind: 'webgl2', caveat: false, antialias: false },
   );
   let gl = null, used = null;
-  for (const a of attempts) {
+  for (const a of liveAttempts) {
     gl = tryContext(canvas, a.kind, a.caveat, a.antialias);
     if (gl) { used = a; break; }
   }
-  const name = rendererName(gl);
+  if (!gl) {
+    return packGpu(probe, probeGl, probeUsed, name, classif);
+  }
+  try {
+    const ext = probeGl && probeGl.getExtension('WEBGL_lose_context');
+    if (ext) ext.loseContext();
+  } catch (_) {}
+  const liveName = rendererName(gl);
+  const liveClassif = classifyRenderer(liveName.vendor || name.vendor, liveName.renderer || name.renderer);
+  return packGpu(canvas, gl, used, liveName.renderer ? liveName : name, liveClassif);
+}
+
+function packGpu(canvas, gl, used, name, classif) {
   const webgl2 = !!(gl && typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext);
-  const classif = classifyRenderer(name.vendor, name.renderer);
-  const ok = webgl2;
   return {
-    canvas, gl, used, ok, webgl2,
+    canvas, gl, used, ok: webgl2, webgl2,
     software: classif.software,
     d3d11Hardware: classif.d3d11Hardware,
     warp: classif.warp,
     antialias: !!(used && used.antialias),
-    reduced: !!(ok && classif.software),
+    reduced: !!(webgl2 && classif.software),
     vendor: name.vendor, renderer: name.renderer,
     reason: !gl ? 'no-context' : (webgl2 ? '' : 'webgl1-only'),
   };
