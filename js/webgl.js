@@ -66,8 +66,13 @@ export function isMobileView() {
 export function pixelRatioFor(lite) {
   const dpr = window.devicePixelRatio || 1;
   if (lite) return Math.min(dpr, 1);
-  if (isMobileView()) return Math.min(dpr, 1.25);
-  return Math.min(dpr, 1.5);
+  return Math.min(dpr, 1.25);
+}
+
+// MSAA on a 1.25× backing store is a big fill-rate hit (GTX 1060 @ 2048×1152). Super-sampling
+// from devicePixelRatio already anti-aliases; keep context MSAA only at ~1×.
+export function wantAntialias() {
+  return (window.devicePixelRatio || 1) <= 1.05;
 }
 
 export function readQualityPref() {
@@ -87,22 +92,24 @@ export function saveQualityPref(v) {
 export function decideLite(pref, gpu, frame) {
   if (pref === 'lite') return { lite: true, reason: 'pref' };
   if (pref === 'high') return { lite: false, reason: 'pref' };
-  if (gpu && gpu.d3d11Hardware) return { lite: false, reason: 'd3d11' };
   if (gpu && gpu.software) return { lite: true, reason: 'software' };
-  if (frame && (frame.fps < 28 || frame.medianDt > 36)) return { lite: true, reason: 'slow-frames' };
+  if (frame && (frame.fps < 40 || frame.medianDt > 25)) return { lite: true, reason: 'slow-frames' };
+  if (gpu && gpu.d3d11Hardware) return { lite: false, reason: 'd3d11' };
   return { lite: false, reason: 'auto-ok' };
 }
 
 export function probeGpu() {
   const canvas = document.createElement('canvas');
   canvas.setAttribute('data-engine', 'glaze-kiln');
-  const attempts = [
-    { kind: 'webgl2', caveat: true, antialias: true },
+  const aa = wantAntialias();
+  const attempts = [];
+  if (aa) attempts.push({ kind: 'webgl2', caveat: true, antialias: true });
+  attempts.push(
     { kind: 'webgl2', caveat: true, antialias: false },
     { kind: 'webgl2', caveat: false, antialias: false },
     { kind: 'webgl', caveat: true, antialias: false },
     { kind: 'webgl', caveat: false, antialias: false },
-  ];
+  );
   let gl = null, used = null;
   for (const a of attempts) {
     gl = tryContext(canvas, a.kind, a.caveat, a.antialias);
@@ -117,6 +124,7 @@ export function probeGpu() {
     software: classif.software,
     d3d11Hardware: classif.d3d11Hardware,
     warp: classif.warp,
+    antialias: !!(used && used.antialias),
     reduced: !!(ok && classif.software),
     vendor: name.vendor, renderer: name.renderer,
     reason: !gl ? 'no-context' : (webgl2 ? '' : 'webgl1-only'),
@@ -188,8 +196,17 @@ function makeStub(gpu) {
     restoreContext: noop,
     shown: () => ({ engine: 'none', mode: 'raw', maps: {}, sim: {} }),
     classifyGpu: (v, r) => classifyRenderer(v, r),
+    decideQuality: (p, g, f) => decideLite(p, g, f),
     setQuality: noop,
     get quality() { return 'auto'; },
+    get lite() { return false; },
+    get framesDrawn() { return 0; },
+    get uploads() { return 0; },
+    get uploadBytes() { return 0; },
+    get shadowUpdates() { return 0; },
+    get drawStats() { return { drawn: 0, rafs: 0, uploads: 0, uploadBytes: 0, shadows: 0, probe: null }; },
+    get lastFrameProbe() { return null; },
+    get rafs() { return 0; },
   };
 }
 
@@ -201,6 +218,7 @@ export function infoOf(gpu, ok, extra = {}) {
     software: !!(gpu && gpu.software),
     d3d11Hardware: !!(gpu && gpu.d3d11Hardware),
     warp: !!(gpu && gpu.warp),
+    antialias: extra.antialias ?? !!(gpu && gpu.antialias),
     webgl2: !!(gpu && gpu.webgl2),
     vendor: (gpu && gpu.vendor) || '',
     renderer: (gpu && gpu.renderer) || '',

@@ -88,6 +88,11 @@ export class GlazeState {
     this.mode = 'raw';
     this.waxFoot = true;
     this.onUpload = () => {};
+    this.lastComposeK0 = 0;
+    this.lastComposeK1 = H - 1;
+    this.deferCompose = false;
+    this._ck0 = 1e9;
+    this._ck1 = -1;
     this.engine = 'page';
     this.ops = [];
     this._recording = !this.host;
@@ -217,6 +222,8 @@ export class GlazeState {
     const a = this._ck0, b = this._ck1;
     this._ck0 = 1e9; this._ck1 = -1;
     this.composeRaw(a, b);
+    this.lastComposeK0 = a;
+    this.lastComposeK1 = b;
   }
   pour(gi, h, mode, amount) {
     if (this._recording) this.ops.push({ op: 'pour', glaze: GLAZES[gi].id, h: q4(h), mode, t: q4(amount) });
@@ -259,6 +266,8 @@ export class GlazeState {
       F[o] = 0; F[o + 1] = 0; F[o + 2] = Math.round(255 * (1 - cov) * 0.55); F[o + 3] = 0;
       Hh[o] = Math.min(255, tot * 110); Hh[o + 1] = Hh[o]; Hh[o + 2] = Hh[o]; Hh[o + 3] = 255;
     }
+    this.lastComposeK0 = k0;
+    this.lastComposeK1 = k1;
     this.onUpload();
   }
   // ---------- firing ----------
@@ -851,6 +860,8 @@ export class GlazeState {
         Hh[o] = 255 * Math.tanh(h * 0.43); Hh[o + 1] = Hh[o]; Hh[o + 2] = Hh[o]; Hh[o + 3] = 255;   // soft clamp: thick beads never plateau into a hard bump edge
       }
     }
+    this.lastComposeK0 = 0;
+    this.lastComposeK1 = H - 1;
     this.onUpload();
   }
 }
