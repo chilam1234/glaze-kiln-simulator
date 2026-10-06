@@ -134,10 +134,11 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   position: absolute; top: 44px; left: 22px; z-index: 4; max-width: 26em; margin: 0;
   padding: 8px 10px; font: 500 12px var(--font-body); color: var(--ink);
   background: var(--paper); border: 1px solid var(--ink);
+  pointer-events: none;
 }
 .gpu-note p { margin: 0 0 6px; }
 .gpu-note p:last-child { margin: 0; }
-.gpu-note a { color: var(--ink); }
+.gpu-note a { color: var(--ink); pointer-events: auto; }
 .gpu-note-help { font-size: 11px; }
 .quality-seg { margin: 10px 0 0; max-width: 16em; }
 .quality-seg button { min-height: 32px; font-size: 11px; }
