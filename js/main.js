@@ -1,18 +1,23 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=30065bd-20261006-1306';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=30065bd-20261006-1306';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=30065bd-20261006-1306';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=30065bd-20261006-1306';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=30065bd-20261006-1306';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=30065bd-20261006-1306';
+import { BUILD, BUILD_TIME } from './build-info.js?v=30065bd-20261006-1306';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
 const setStatus = (t) => { statusEl.textContent = t; };
 const MOBILE_MQ = '(max-width: 700px), (max-height: 520px) and (max-width: 960px)';
 const isMobileLayout = () => window.matchMedia(MOBILE_MQ).matches;
+(function showBuildStamp() {
+  const el = document.getElementById('buildStamp');
+  if (el) el.textContent = BUILD_TIME ? `build ${BUILD} · ${BUILD_TIME}` : `build ${BUILD}`;
+})();
 
 function syncAppSize() {
   const vv = window.visualViewport;
@@ -105,6 +110,8 @@ function dataTex(arr, srgb) {
   const t = new THREE.DataTexture(arr, TEX_W, TEX_H, THREE.RGBAFormat, THREE.UnsignedByteType);
   t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
   t.magFilter = THREE.LinearFilter;
+  t.flipY = false;
+  t.unpackAlignment = 1;
   configureTex(t);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.needsUpdate = true; return t;
@@ -123,10 +130,12 @@ let lastBuildMs = 0, fireWallMs = 0, previewing = false;
 let drawRequested = false, rafId = 0, measuring = false, frameProbing = false;
 let lastFrameProbe = null;
 const drawStats = { rafs: 0, drawn: 0, uploads: 0, uploadBytes: 0, shadows: 0, lastDt: 16, frames: [] };
-// Packed row scratch for texSubImage2D. iOS Safari ignores UNPACK_SKIP_ROWS /
-// TypedArray byteOffset on the full 1024² atlas, which uploaded the wrong rows
-// as a sharp-edged band around the stroke.
+// Packed row scratch used only when regionUpload is on (tests). Default is a
+// full needsUpdate of every map — iOS Safari (Metal) still corrupts texSubImage
+// sub-rects even with a packed buffer, which painted a terracotta band and
+// left props/height on the wrong channels (glossy-dark / translucent grey).
 let _packScratch = new Uint8Array(0);
+let regionUpload = false;
 const fancyMat = makePotMaterial(tex);
 const simpleMat = makeSimplePotMaterial(tex, true);
 let material = lite ? simpleMat : fancyMat;
@@ -192,6 +201,7 @@ function applyVisualQuality() {
   markShadowsDirty();
   resize();
   syncQualityBanner();
+  uploadTextures({ full: true });
 }
 
 function setQualityPref(pref, opts = {}) {
@@ -249,14 +259,14 @@ function probeFrameTime() {
 }
 const ctxLost = bindContextEvents(renderer.domElement, renderer.getContext(), {
   onLost() { setStatus('Graphics paused — restoring…'); },
-  onRestored() { uploadTextures(); resize(); requestDraw(); setStatus('Graphics restored.'); },
+  onRestored() { uploadTextures({ full: true }); resize(); requestDraw(); setStatus('Graphics restored.'); },
 });
 function uploadOne(texture, k0, k1, forceFull) {
   const fullBytes = TEX_W * TEX_H * 4;
   const props = renderer.properties.get(texture);
   const ready = !!(props && props.__webglTexture);
   const rows = (k1 >= k0) ? (k1 - k0 + 1) : TEX_H;
-  const useRegion = ready && !forceFull && k0 != null && k1 != null && k1 >= k0 && rows > 0 && rows < TEX_H;
+  const useRegion = regionUpload && ready && !forceFull && k0 != null && k1 != null && k1 >= k0 && rows > 0 && rows < TEX_H;
   if (!useRegion) {
     texture.needsUpdate = true;
     drawStats.uploadBytes += fullBytes;
@@ -285,12 +295,10 @@ function uploadOne(texture, k0, k1, forceFull) {
   drawStats.uploadBytes += bytes;
   return bytes;
 }
-function uploadTextures(stroke, opts = {}) {
+function uploadTextures(opts = {}) {
   const k0 = state.lastComposeK0, k1 = state.lastComposeK1;
-  const keys = stroke ? ['color'] : Object.keys(tex);
-  const rows = (k1 >= k0) ? (k1 - k0 + 1) : TEX_H;
-  const forceFull = !!opts.full || (!stroke && rows >= TEX_H);
-  for (const k of keys) {
+  const forceFull = !!opts.full || !regionUpload;
+  for (const k of Object.keys(tex)) {
     const t = tex[k];
     if (t.image.data !== state[k]) t.image.data = state[k];
     uploadOne(t, k0, k1, forceFull);
@@ -1126,11 +1134,8 @@ const endStroke = (e) => {
   if (state.deferCompose) {
     state.deferCompose = false;
     state.flushCompose();
-    uploadTextures(false);
-  } else if (ui.simState === 'raw') {
-    // Color-only uploads while the pointer was down; push props/height too.
-    uploadTextures(false);
   }
+  uploadTextures({ full: true });
   requestDraw();
   if (coatMark >= 0) {
     const mark = coatMark;
@@ -1510,7 +1515,7 @@ for (const [fam, label] of FAMILIES) {
     const mid = g.fired[Math.min(g.fired.length - 1, 3)][1];
     b.innerHTML = `<span class="sw" style="background:linear-gradient(135deg, ${g.raw} 50%, ${mid} 50%)"></span><span class="nm">${g.name.replace(/ ([A-Z]{1,3}-\d+)$/, '')}${/ [A-Z]{1,3}-\d+$/.test(g.name) ? `<small>${g.name.match(/[A-Z]{1,3}-\d+$/)[0]}</small>` : ''}</span>`;
     b.title = `${g.name}${g.src ? ' (colours approximated from ' + g.src + ')' : g.like ? ' (' + g.like + ')' : ''}. Swatch: raw colour | fired colour`;
-    b.onclick = () => { ui.glaze = g.id; ui.glazeFam = g.family; refreshUI(); };
+    b.onclick = () => { ui.glaze = g.id; ui.glazeFam = g.family; refreshUI(); uploadTextures({ full: true }); requestDraw(); };
     grid.appendChild(b);
   }
   famWrap.appendChild(grid);
@@ -2150,7 +2155,7 @@ function loop() {
   rafId = 0;
   drawStats.rafs++;
   if (painting) state.flushCompose();
-  if (dirty) uploadTextures(painting);
+  if (dirty) uploadTextures({ full: !regionUpload });
   const g = glow.v;
   glowCol.setRGB(1.0, 0.16 + 0.28 * g, 0.03 + 0.06 * g * g);
   if (material.userData.uniforms) {
@@ -2206,7 +2211,7 @@ bootCloud();
 window.__sim = {
   get state() { return ui.simState; },
   setShape, fire, unfire, clear: clearAll,
-  setGlaze(id) { ui.glaze = id; const g = GLAZES[GLAZE_INDEX[id]]; if (g) ui.glazeFam = g.family; refreshUI(); },
+  setGlaze(id) { ui.glaze = id; const g = GLAZES[GLAZE_INDEX[id]]; if (g) ui.glazeFam = g.family; refreshUI(); uploadTextures({ full: true }); requestDraw(); },
   setTool(t) { ui.tool = t; refreshUI(); },
   setThickness(v) { thickness[ui.glaze] = v; refreshUI(); },
   undo: undoLast,
@@ -2507,6 +2512,11 @@ window.__sim = {
   get section() { return ui.section; },
   stats: () => state.stats(),
   paintMask: (opts) => state.paintMask(opts || {}),
+  setRegionUpload(on) { regionUpload = !!on; return { regionUpload, mode: regionUpload ? 'region' : 'full' }; },
+  get regionUpload() { return regionUpload; },
+  get uploadMode() { return regionUpload ? 'region' : 'full'; },
+  get build() { return BUILD; },
+  get buildTime() { return BUILD_TIME; },
   setSeed(n) { state.fixedSeed = (n === null || n === undefined) ? undefined : n >>> 0; },   // stable seed for tests; null = random per firing
   get seed() { return state.seed; },
   get fireMs() { return state.fireMs; },

@@ -4,12 +4,14 @@
 <meta charset="utf-8">
 <title>Glaze Kiln — pottery glaze simulator</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=30065bd-20261006-1306">
 <script type="importmap">
 { "imports": {
-  "three": "./vendor/three.module.js",
-  "three/addons/": "./vendor/addons/"
+  "three": "./vendor/three.module.js?v=30065bd-20261006-1306",
+  "three/addons/controls/OrbitControls.js": "./vendor/addons/controls/OrbitControls.js?v=30065bd-20261006-1306",
+  "three/addons/environments/RoomEnvironment.js": "./vendor/addons/environments/RoomEnvironment.js?v=30065bd-20261006-1306"
 } }
 </script>
 </head>
@@ -38,6 +40,7 @@
       <button type="button" data-mode="orbit">Orbit</button>
     </div>
   </div>
+  <p class="build-stamp" id="buildStamp"></p>
   <div id="sheet" class="sheet">
     <section data-sheet="pot">
       <h2>Pot</h2>
@@ -247,6 +250,6 @@
     <canvas id="sectionCanvas"></canvas>
   </div>
 </main>
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js?v=30065bd-20261006-1306"></script>
 </body>
 </html>
