@@ -6,7 +6,7 @@ import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
 import { makePotMaterial, makeSimplePotMaterial } from './material.js';
-import { probeGpu, installNoGpu, showReducedNote, bindContextEvents, pixelRatioFor, infoOf } from './webgl.js';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -37,15 +37,24 @@ if (!gpuProbe.ok) {
 }
 
 function startApp(gpuProbe) {
+const classif = classifyRenderer(gpuProbe.vendor, gpuProbe.renderer);
+gpuProbe.software = classif.software;
+gpuProbe.d3d11Hardware = classif.d3d11Hardware;
+gpuProbe.warp = classif.warp;
+let qualityPref = readQualityPref();
+let qualityInfo = decideLite(qualityPref, gpuProbe, null);
+let lite = qualityInfo.lite;
+gpuProbe.reduced = lite;
+
 // ---------- renderer / scene ----------
 let renderer;
 try {
   renderer = new THREE.WebGLRenderer({
     canvas: gpuProbe.canvas,
     context: gpuProbe.gl,
-    antialias: !gpuProbe.reduced && !isMobileLayout(),
+    antialias: !lite && !isMobileLayout() && wantAntialias(),
     preserveDrawingBuffer: true,
-    powerPreference: gpuProbe.reduced ? 'low-power' : 'high-performance',
+    powerPreference: lite ? 'low-power' : 'high-performance',
     failIfMajorPerformanceCaveat: false,
     alpha: false,
   });
@@ -54,73 +63,222 @@ try {
   installNoGpu(view, { ...gpuProbe, ok: false, reason: gpuProbe.webgl2 ? 'no-context' : (gpuProbe.reason || 'no-context') });
   return;
 }
-renderer.setPixelRatio(pixelRatioFor(gpuProbe.reduced));
+renderer.setPixelRatio(pixelRatioFor(lite));
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 0.95;
-renderer.shadowMap.enabled = !gpuProbe.reduced;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = !lite;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = !lite;
 view.appendChild(renderer.domElement);
-if (gpuProbe.reduced) showReducedNote(view);
+syncQualityBanner();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#F5F1E8');
-if (gpuProbe.reduced) {
+let pmremTex = null;
+if (lite) {
   scene.environment = null;
   scene.environmentIntensity = 0;
   scene.add(new THREE.AmbientLight(0xfff4ea, 0.62));
   scene.add(new THREE.HemisphereLight(0xf3f6ff, 0x8a7a68, 0.7));
 } else {
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmremTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = pmremTex;
   scene.environmentIntensity = 0.85;
 }
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
-const key = new THREE.DirectionalLight(0xfff6ee, gpuProbe.reduced ? 1.15 : 1.8);
+const key = new THREE.DirectionalLight(0xfff6ee, lite ? 1.15 : 1.8);
 key.position.set(3.5, 6, 4);
-key.castShadow = !gpuProbe.reduced;
-key.shadow.mapSize.set(gpuProbe.reduced ? 256 : (isMobileLayout() ? 1024 : 2048), gpuProbe.reduced ? 256 : (isMobileLayout() ? 1024 : 2048));
+key.castShadow = !lite;
+key.shadow.mapSize.set(lite ? 256 : 1024, lite ? 256 : 1024);
 key.shadow.camera.left = -2.5; key.shadow.camera.right = 2.5; key.shadow.camera.top = 3.5; key.shadow.camera.bottom = -1.5;
 key.shadow.camera.near = 1; key.shadow.camera.far = 20;
-key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = gpuProbe.reduced ? 2 : 6;
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = lite ? 2 : 6;
 scene.add(key);
-const ground = new THREE.Mesh(new THREE.CircleGeometry(12, gpuProbe.reduced ? 24 : 64), new THREE.ShadowMaterial({ opacity: gpuProbe.reduced ? 0.16 : 0.28 }));
-ground.rotation.x = -Math.PI / 2; ground.receiveShadow = !gpuProbe.reduced; scene.add(ground);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(12, lite ? 24 : 64), new THREE.ShadowMaterial({ opacity: lite ? 0.16 : 0.28 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = !lite; scene.add(ground);
 
 // ---------- textures + glaze state ----------
 function dataTex(arr, srgb) {
   const t = new THREE.DataTexture(arr, TEX_W, TEX_H, THREE.RGBAFormat, THREE.UnsignedByteType);
   t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
   t.magFilter = THREE.LinearFilter;
-  if (gpuProbe.reduced) {
+  configureTex(t);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true; return t;
+}
+function configureTex(t) {
+  if (lite) {
     t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.anisotropy = 1;
   } else {
     t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.anisotropy = 4;
   }
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.needsUpdate = true; return t;
 }
 const state = new GlazeState();
 const tex = { color: dataTex(state.color, true), props: dataTex(state.props), fx: dataTex(state.fx), height: dataTex(state.height) };
 let dirty = false;
 let lastBuildMs = 0, fireWallMs = 0, previewing = false;
+let drawRequested = false, rafId = 0, measuring = false, frameProbing = false;
+let lastFrameProbe = null;
+const drawStats = { rafs: 0, drawn: 0, uploads: 0, uploadBytes: 0, shadows: 0, lastDt: 16, frames: [] };
+const _texBox = new THREE.Box2();
+const _texPos = new THREE.Vector2();
+const fancyMat = makePotMaterial(tex);
+const simpleMat = makeSimplePotMaterial(tex, true);
+let material = lite ? simpleMat : fancyMat;
+let pot = null, mesh = null, pickMesh = null;
+
+function requestDraw() {
+  drawRequested = true;
+  if (!rafId) rafId = requestAnimationFrame(loop);
+}
+function meshOpts(extra = {}) {
+  return { lite, ...extra };
+}
+
+function syncQualityBanner() {
+  document.body.classList.toggle('is-lite', lite);
+  if (lite && qualityPref !== 'high') showLiteBanner(view, { reason: qualityInfo.reason, pref: qualityPref });
+  else hideLiteBanner();
+  const engine = document.getElementById('engineLine');
+  if (engine) engine.textContent = lite ? 'Lite graphics' : 'Clay, then fire';
+  document.querySelectorAll('#quality button').forEach(b => {
+    b.classList.toggle('active', b.dataset.quality === qualityPref);
+  });
+}
+
+function markShadowsDirty() {
+  if (!lite && renderer.shadowMap.enabled) {
+    renderer.shadowMap.needsUpdate = true;
+    drawStats.shadows++;
+  }
+}
+
+function applyVisualQuality() {
+  gpuProbe.reduced = lite;
+  renderer.shadowMap.enabled = !lite;
+  renderer.shadowMap.autoUpdate = false;
+  key.castShadow = !lite;
+  ground.receiveShadow = !lite;
+  key.intensity = lite ? 1.15 : 1.8;
+  if (lite) {
+    scene.environment = null;
+    scene.environmentIntensity = 0;
+    material = simpleMat;
+  } else {
+    if (!pmremTex) {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmremTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    }
+    scene.environment = pmremTex;
+    scene.environmentIntensity = 0.85;
+    material = fancyMat;
+  }
+  if (mesh) {
+    mesh.material = material;
+    mesh.castShadow = !lite;
+    mesh.receiveShadow = !lite;
+  }
+  for (const t of Object.values(tex)) configureTex(t);
+  renderer.setPixelRatio(pixelRatioFor(lite));
+  markShadowsDirty();
+  resize();
+  syncQualityBanner();
+}
+
+function setQualityPref(pref, opts = {}) {
+  if (pref !== 'auto' && pref !== 'high' && pref !== 'lite') return;
+  qualityPref = pref;
+  if (!opts.skipSave) saveQualityPref(pref);
+  const next = decideLite(qualityPref, gpuProbe, lastFrameProbe);
+  const changed = next.lite !== lite;
+  qualityInfo = next;
+  lite = next.lite;
+  applyVisualQuality();
+  if (changed && pot) {
+    if (ui.shape === 'custom' && customSpec) rebuildCustom();
+    else applyBuiltPot(buildPot(ui.shape, meshOpts()), { keepGlaze: true, noFrame: true });
+  }
+  requestDraw();
+  if (pref === 'auto' && !lite) probeFrameTime();
+}
+
+function probeFrameTime() {
+  if (qualityPref !== 'auto' || lite || frameProbing) return;
+  frameProbing = true;
+  measuring = true;
+  const samples = [];
+  const tEnd = performance.now() + 2000;
+  const tick = (t) => {
+    samples.push(t);
+    requestDraw();
+    if (t < tEnd) return;
+    measuring = false;
+    frameProbing = false;
+    const dts = [];
+    for (let i = 1; i < samples.length; i++) dts.push(samples[i] - samples[i - 1]);
+    dts.sort((a, b) => a - b);
+    const medianDt = dts[Math.floor(dts.length / 2)] || 16;
+    const fps = 1000 / Math.max(1, medianDt);
+    lastFrameProbe = { fps, medianDt };
+    qualityInfo = decideLite(qualityPref, gpuProbe, lastFrameProbe);
+    if (qualityInfo.lite && !lite) {
+      lite = true;
+      applyVisualQuality();
+      if (ui.shape === 'custom' && customSpec) rebuildCustom();
+      else if (ui.shape) applyBuiltPot(buildPot(ui.shape, meshOpts()), { keepGlaze: true, noFrame: true });
+      setStatus('Lite mode on — frames were slow. Use Quality → High to override.');
+    }
+    requestDraw();
+  };
+  let last = 0;
+  const wrap = (now) => {
+    if (last) tick(now);
+    last = now;
+    if (measuring) requestAnimationFrame(wrap);
+  };
+  requestAnimationFrame(wrap);
+}
 const ctxLost = bindContextEvents(renderer.domElement, renderer.getContext(), {
   onLost() { setStatus('Graphics paused — restoring…'); },
-  onRestored() { uploadTextures(); resize(); setStatus('Graphics restored.'); },
+  onRestored() { uploadTextures(); resize(); requestDraw(); setStatus('Graphics restored.'); },
 });
-// The kiln thread returns fresh maps. Point the textures at them, or the pot keeps the raw image
-// and later strokes never show.
-function uploadTextures() {
-  for (const k of Object.keys(tex)) {
-    const image = tex[k].image;
-    if (image.data !== state[k]) image.data = state[k];
-    tex[k].needsUpdate = true;
+function uploadOne(texture, k0, k1, forceFull) {
+  const fullBytes = TEX_W * TEX_H * 4;
+  const props = renderer.properties.get(texture);
+  const ready = !!(props && props.__webglTexture);
+  const rows = (k1 >= k0) ? (k1 - k0 + 1) : TEX_H;
+  const useRegion = ready && !forceFull && k0 != null && k1 != null && k1 >= k0 && rows > 0 && rows < TEX_H;
+  if (!useRegion) {
+    texture.needsUpdate = true;
+    drawStats.uploadBytes += fullBytes;
+    return fullBytes;
+  }
+  texture.needsUpdate = false;
+  _texBox.min.set(0, k0);
+  _texBox.max.set(TEX_W, k1 + 1);
+  _texPos.set(0, k0);
+  renderer.copyTextureToTexture(texture, texture, _texBox, _texPos);
+  const bytes = rows * TEX_W * 4;
+  drawStats.uploadBytes += bytes;
+  return bytes;
+}
+function uploadTextures(stroke) {
+  const k0 = state.lastComposeK0, k1 = state.lastComposeK1;
+  const keys = stroke ? ['color'] : Object.keys(tex);
+  const rows = (k1 >= k0) ? (k1 - k0 + 1) : TEX_H;
+  const forceFull = !stroke && rows >= TEX_H;
+  for (const k of keys) {
+    const t = tex[k];
+    if (t.image.data !== state[k]) t.image.data = state[k];
+    uploadOne(t, k0, k1, forceFull);
   }
   dirty = false;
+  drawStats.uploads++;
 }
-state.onUpload = () => { dirty = true; };
-const material = gpuProbe.reduced ? makeSimplePotMaterial(tex) : makePotMaterial(tex);
-let pot = null, mesh = null, pickMesh = null;
+state.onUpload = () => { dirty = true; requestDraw(); };
 
 // ---------- UI state ----------
 const ui = { shape: 'vase', glaze: 'tenmoku', tool: 'brush', size: 0.12, pourH: 0.66, pourMode: 'below', simState: 'raw', sheet: 'glaze', touchOrbit: false, touchMode: 'paint', cone: 6, section: false, shapeGroup: 'pot' };
@@ -153,7 +311,7 @@ function applyBuiltPot(built, opts = {}) {
     if (mesh.geometry && mesh.geometry !== pot.geometry) mesh.geometry.dispose();
   }
   mesh = new THREE.Mesh(pot.geometry, material);
-  const live = !opts.preview && !gpuProbe.reduced;
+  const live = !opts.preview && !lite;
   mesh.castShadow = live; mesh.receiveShadow = live;
   if (!opts.preview) {
     if (pickMesh) {
@@ -166,6 +324,7 @@ function applyBuiltPot(built, opts = {}) {
     } else pickMesh = null;
   }
   scene.add(mesh);
+  markShadowsDirty();
   state.setPot(pot, opts);
   lastBuildMs = performance.now() - t0;
   previewing = !!opts.preview;
@@ -174,10 +333,12 @@ function applyBuiltPot(built, opts = {}) {
   if (opts.skipUi) {
     updateGizmoDataFromSpec();
     placeGizmos();
+    requestDraw();
     return;
   }
   refreshUI();
   rebuildGizmos();
+  requestDraw();
 }
 function setShape(kind) {
   if (ui.simState === 'firing') return;
@@ -190,7 +351,7 @@ function setShape(kind) {
     selectedHandle = -1;
     ui.shapeGroup = 'pot';
     ui.shape = 'custom';
-    applyBuiltPot(buildCustomPot(customSpec), { remap: true });
+    applyBuiltPot(buildCustomPot(customSpec, meshOpts()), { remap: true });
     if (isMobileLayout()) {
       ui.touchMode = 'shape'; ui.touchOrbit = false; syncOrbitTouches();
       document.body.classList.add('sheet-collapsed');
@@ -206,7 +367,7 @@ function setShape(kind) {
   selectedNode = -1;
   selectedHandle = -1;
   ui.shape = kind;
-  applyBuiltPot(buildPot(kind));
+  applyBuiltPot(buildPot(kind, meshOpts()));
   setStatus(`${kind[0].toUpperCase() + kind.slice(1)} ready. Paint some glaze, then fire.`);
   if (same) {
     if (historyArmed && !historyLock) steps.push({ kind: 'clear' });
@@ -223,7 +384,7 @@ function rebuildCustom(opts = {}) {
   if (!customSpec) return;
   if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return; }
   const t0 = performance.now();
-  applyBuiltPot(buildCustomPot(customSpec, { preview: !!opts.preview }), {
+  applyBuiltPot(buildCustomPot(customSpec, meshOpts({ preview: !!opts.preview })), {
     preview: !!opts.preview,
     skipNoise: !!opts.preview,
     keepGlaze: !!opts.preview,
@@ -703,6 +864,8 @@ controls.minDistance = 2; controls.maxDistance = 20;
 controls.minPolarAngle = 0.08;
 controls.maxPolarAngle = Math.PI * 0.92;
 syncOrbitTouches();
+controls.addEventListener('change', requestDraw);
+controls.addEventListener('start', requestDraw);
 
 renderer.domElement.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') touchPointers.add(e.pointerId);
@@ -746,7 +909,9 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
     painting = true; lastScreen = [e.clientX, e.clientY]; paintPointer = e.pointerId;
     renderer.domElement.setPointerCapture(e.pointerId);
     coatMark = state.ops.length;
+    state.deferCompose = true;
     state.beginStroke(); dabFromHit(h);
+    requestDraw();
   } else {
     if (e.pointerType !== 'touch') controls.enabled = false;
     ui.pourH = Math.min(1, Math.max(0, h.point.y / pot.height));
@@ -782,6 +947,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
       updateGizmoDataFromSpec();
       placeGizmos();
       queueShapePreview();
+      requestDraw();
     }
     return;
   }
@@ -790,6 +956,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     cursor.visible = true; cursor.position.copy(h.point);
     const n = h.face.normal.clone().transformDirection(mesh.matrixWorld);
     cursor.lookAt(h.point.clone().add(n)); cursor.scale.setScalar(ui.size);
+    requestDraw();
   } else if (e.pointerType === 'touch' || showingGizmos()) cursor.visible = false;
   else if (!h) cursor.visible = false;
   if (ui.tool === 'pour' && h && ui.simState === 'raw') showPourRing(h.point.y / pot.height);
@@ -802,6 +969,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     if (hh) dabFromHit(hh);
   }
   lastScreen = [e.clientX, e.clientY];
+  requestDraw();
 });
 const endStroke = (e) => {
   if (e && e.pointerType === 'touch') touchPointers.delete(e.pointerId);
@@ -820,6 +988,12 @@ const endStroke = (e) => {
   }
   if (e && paintPointer !== null && e.pointerId !== paintPointer && touchPointers.size) return;
   painting = false; paintPointer = null; controls.enabled = true;
+  if (state.deferCompose) {
+    state.deferCompose = false;
+    state.flushCompose();
+    uploadTextures(false);
+  }
+  requestDraw();
   if (coatMark >= 0) {
     const mark = coatMark;
     coatMark = -1;
@@ -869,6 +1043,7 @@ async function fire(seed) {
   if (ui.simState === 'firing') return;
   if (ui.simState !== 'raw' && ui.simState !== 'fired') return;
   ui.simState = 'firing'; document.body.classList.add('sheet-collapsed'); refreshUI(); cursor.visible = false; pourRing.visible = false;
+  requestDraw();
   const temp = ui.cone === 10 ? 1285 : 1222;
   setStatus(`Firing… heating to cone ${ui.cone} (~${temp}°C, Orton 60°C/h)`);
   setFireProgress(0.04, `Heating to cone ${ui.cone}`);
@@ -1273,6 +1448,9 @@ $('potList').onchange = async (e) => {
   }
 };
 $('fireBtn').onclick = () => fire(); $('unfireBtn').onclick = unfire; $('undoBtn').onclick = undoLast; $('clearBtn').onclick = clearAll;
+document.querySelectorAll('#quality button').forEach(b => {
+  b.onclick = () => setQualityPref(b.dataset.quality);
+});
 window.addEventListener('keydown', (e) => {
   if (!(e.metaKey || e.ctrlKey) || e.key !== 'z' || e.shiftKey) return;
   const tag = document.activeElement && document.activeElement.tagName;
@@ -1793,8 +1971,9 @@ function resize() {
   syncAppSize();
   const w = view.clientWidth, h = view.clientHeight;
   if (w < 1 || h < 1) return;
-  renderer.setPixelRatio(pixelRatioFor(gpuProbe.reduced));
+  renderer.setPixelRatio(pixelRatioFor(lite));
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  requestDraw();
 }
 window.addEventListener('resize', resize);
 if (window.visualViewport) {
@@ -1804,8 +1983,10 @@ if (window.visualViewport) {
 if (typeof ResizeObserver === 'function') new ResizeObserver(resize).observe(view);
 const glowCol = new THREE.Color(), BG = new THREE.Color('#F5F1E8'), BG_KILN = new THREE.Color('#101A3A');
 function loop() {
-  requestAnimationFrame(loop);
-  if (dirty) uploadTextures();
+  rafId = 0;
+  drawStats.rafs++;
+  if (painting) state.flushCompose();
+  if (dirty) uploadTextures(painting);
   const g = glow.v;
   glowCol.setRGB(1.0, 0.16 + 0.28 * g, 0.03 + 0.06 * g * g);
   if (material.userData.uniforms) {
@@ -1814,13 +1995,19 @@ function loop() {
   } else {
     material.emissive.copy(glowCol).multiplyScalar(g * 0.35);
   }
-  const key0 = gpuProbe.reduced ? 1.15 : 1.8;
+  const key0 = lite ? 1.15 : 1.8;
   key.intensity = key0 * (1 - 0.75 * g);
-  if (!gpuProbe.reduced) scene.environmentIntensity = 0.85 * (1 - 0.75 * g);
+  if (!lite) scene.environmentIntensity = 0.85 * (1 - 0.75 * g);
   scene.background.copy(BG).lerp(BG_KILN, g);
-  controls.update();
-  if (!shaping) placeGizmos();
-  renderer.render(scene, camera);
+  const damping = controls.update();
+  const live = damping || g > 0.002 || ui.simState === 'firing' || shaping || painting || measuring;
+  if (drawRequested || live) {
+    if (!shaping && showingGizmos()) placeGizmos();
+    renderer.render(scene, camera);
+    drawStats.drawn++;
+    drawRequested = false;
+  }
+  if (live || drawRequested) rafId = requestAnimationFrame(loop);
 }
 resize();
 applyLayout();
@@ -1829,7 +2016,8 @@ setShape('vase');
 captureBaseline();
 historyArmed = true;
 refreshUI();
-loop();
+requestDraw();
+probeFrameTime();
 state.warm();
 bootCloud();
 
@@ -1862,6 +2050,7 @@ window.__sim = {
     controls.update();
     controls.enableDamping = damp;
     camera.updateMatrixWorld();
+    requestDraw();
   },
   getView() {
     const t = controls.target, d = camera.position.distanceTo(t);
@@ -2140,11 +2329,41 @@ window.__sim = {
   get fireMs() { return state.fireMs; },
   get fireWallMs() { return fireWallMs; },
   get lastBuildMs() { return lastBuildMs; },
-  get gpu() { return infoOf(gpuProbe, true); },
+  get gpu() { return infoOf(gpuProbe, true, { pref: qualityPref, lite, reason: qualityInfo.reason, antialias: gpuProbe.antialias }); },
+  classifyGpu(vendor, renderer) { return classifyRenderer(vendor, renderer); },
+  decideQuality(pref, gpu, frame) { return decideLite(pref, gpu, frame); },
+  setQuality(pref) { setQualityPref(pref); return { quality: qualityPref, lite, reason: qualityInfo.reason }; },
+  get quality() { return qualityPref; },
+  get lite() { return lite; },
+  get framesDrawn() { return drawStats.drawn; },
+  get uploads() { return drawStats.uploads; },
+  get uploadBytes() { return drawStats.uploadBytes; },
+  get shadowUpdates() { return drawStats.shadows; },
+  get drawStats() { return { drawn: drawStats.drawn, rafs: drawStats.rafs, uploads: drawStats.uploads, uploadBytes: drawStats.uploadBytes, shadows: drawStats.shadows, probe: lastFrameProbe }; },
+  get lastFrameProbe() { return lastFrameProbe; },
+  get rafs() { return drawStats.rafs; },
+  measureFps(ms = 2000) {
+    return new Promise((resolve) => {
+      measuring = true;
+      const t0 = performance.now();
+      const drawn0 = drawStats.drawn;
+      const wrap = (t) => {
+        requestDraw();
+        if (t - t0 >= ms) {
+          measuring = false;
+          const dt = Math.max(1, t - t0);
+          const frames = drawStats.drawn - drawn0;
+          requestDraw();
+          resolve({ ms: dt, frames, fps: 1000 * frames / dt });
+        } else requestAnimationFrame(wrap);
+      };
+      requestAnimationFrame(wrap);
+    });
+  },
   loseContext() { ctxLost.lose(); },
   restoreContext() { ctxLost.restore(); },
   get contextLost() { return ctxLost.lost; },
-  frame() { frameCamera(); },
+  frame() { frameCamera(); requestDraw(); },
   get composeMs() { return state.composeMs; },
   get dripStats() { return state.dripStats; },
   get engine() { return state.engine; },
