@@ -2623,6 +2623,12 @@ window.__sim = {
     const k = outerRow(hFrac);
     return { u: ((angleDeg / 360) % 1 + 1) % 1, v: (k + 0.5) / TEX_H, r: r == null ? ui.size : r };
   },
+  // Mesh UV under a client-pixel hit — same coordinates dabFromHit uses.
+  hitUV(clientX, clientY) {
+    const h = hitAt(clientX, clientY);
+    if (!h || !h.uv) return null;
+    return { u: h.uv.x, v: h.uv.y, x: clientX, y: clientY };
+  },
   // Bytes the pot will draw. `bound` is false when a firing swapped in new maps and the textures stayed on the old ones.
   shown() {
     const sum = (arr) => {

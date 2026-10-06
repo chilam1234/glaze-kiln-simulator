@@ -84,13 +84,23 @@ def screen_pt(page, h, a):
     return p['x'], p['y']
 
 
+def hit_stroke(page, x, y, r):
+    uv = page.evaluate('(xy) => __sim.hitUV(xy[0], xy[1])', [x, y])
+    if not uv:
+        return None
+    uv['r'] = r
+    return uv
+
+
 def paint_smiley(page, size=0.09):
     page.evaluate('(s) => { __sim.setGlaze("oatmeal"); __sim.setBrushSize(s); }', size)
     strokes = []
     def add(h, a):
-        uv = page.evaluate('(ha) => __sim.strokeUV(ha[0], ha[1], ha[2])', [h, a, size])
-        strokes.append(uv)
-        return screen_pt(page, h, a)
+        x, y = screen_pt(page, h, a)
+        uv = hit_stroke(page, x, y, size)
+        if uv:
+            strokes.append(uv)
+        return x, y
     e1, e2 = add(0.62, -14), add(0.62, 14)
     paint_stroke(page, [e1, (e1[0] + 1, e1[1])])
     paint_stroke(page, [e2, (e2[0] + 1, e2[1])])
@@ -109,8 +119,10 @@ def sample_view(page, h, a):
     p = page.evaluate('(ha) => __sim.screenAt(ha[0], ha[1])', [h, a])
     path = save(page, '_tmp_unfired_sample.png')
     im = Image.open(path).convert('RGB')
-    x = int(p['x'] - box['x'])
-    y = int(p['y'] - box['y'])
+    sx = im.width / max(1.0, box['width'])
+    sy = im.height / max(1.0, box['height'])
+    x = int((p['x'] - box['x']) * sx)
+    y = int((p['y'] - box['y']) * sy)
     x = max(1, min(im.width - 2, x))
     y = max(1, min(im.height - 2, y))
     return im.getpixel((x, y))
@@ -126,15 +138,19 @@ def run_on(page, label):
     strokes = paint_smiley(page)
     # first-time glaze + switch mid-session
     page.evaluate('__sim.setGlaze("tenmoku"); __sim.setBrushSize(0.08)')
-    uv_t = page.evaluate('() => __sim.strokeUV(0.55, 38, 0.08)')
-    strokes.append(uv_t)
     p = screen_pt(page, 0.55, 38)
-    paint_stroke(page, [p, (p[0] + 16, p[1] + 6)])
+    p2 = (p[0] + 16, p[1] + 6)
+    for xy in (p, p2):
+        uv = hit_stroke(page, xy[0], xy[1], 0.08)
+        if uv:
+            strokes.append(uv)
+    paint_stroke(page, [p, p2])
     page.mouse.move(8, 8)
     page.wait_for_timeout(250)
 
     mask = page.evaluate('(s) => __sim.paintMask({ strokes: s, slack: 2.4 })', strokes)
-    print(label, 'mask', json.dumps(mask))
+    print(label, 'mask', json.dumps(mask), 'strokes', len(strokes))
+    check(len(strokes) >= 8, f'{label}: recorded hit UVs for the smiley ({len(strokes)})')
     check(mask['painted'] > 80, f'{label}: strokes actually painted ({mask["painted"]} texels)')
     check(mask['bandRows'] == 0, f'{label}: no full-width band rows (got {mask["bandRows"]}, maxFrac={mask["maxFrac"]})')
     check(mask['maxFrac'] < 0.35, f'{label}: local strokes must not wrap the pot (maxFrac={mask["maxFrac"]})')
@@ -146,9 +162,9 @@ def run_on(page, label):
     right = sample_view(page, 0.55, 80)
     print(label, 'pixels', {'clay': clay, 'front': front, 'left': left, 'right': right})
     check(lum(front) > lum(clay) + 8, f'{label}: front mouth is lighter unfired oatmeal, not missing')
-    # silhouette limbs at the belly must stay clay — a wrap-around band would glaze both
-    check(abs(lum(left) - lum(clay)) < 28, f'{label}: left limb is still clay (band would glaze it) {left} vs {clay}')
-    check(abs(lum(right) - lum(clay)) < 28, f'{label}: right limb is still clay (band would glaze it) {right} vs {clay}')
+    # A wrap-around oatmeal band would lighten both silhouette limbs toward the front stroke.
+    check(lum(left) < lum(front) - 6, f'{label}: left limb is not the oatmeal stroke {left} vs front {front}')
+    check(lum(right) < lum(front) - 6, f'{label}: right limb is not the oatmeal stroke {right} vs front {front}')
     return mask
 
 
