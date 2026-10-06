@@ -91,6 +91,8 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 .node-row button.node-del { flex: 0 0 auto; min-width: 72px; font-size: 12px; padding: 6px 10px; }
 .dims { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 0 2px; font-size: 12px; color: var(--text-muted); }
 .dims b { color: var(--amaco-navy); font-size: 15px; }
+.wall-zones { margin: 2px 0 4px; }
+#wallTaperRow { margin: 8px 0 4px; }
 #view { position: relative; }
 #dimHud {
   position: absolute; top: 18px; right: 18px; z-index: 2; pointer-events: none;
@@ -362,6 +364,29 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider input {
     min-height: 44px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="pot"].active {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 10px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="pot"] > :not(.slider) {
+    grid-column: 1 / -1;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="pot"] .slider {
+    margin: 8px 0 6px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .wall-zones {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 10px;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .wall-zones .slider:last-child {
+    grid-column: 1 / -1;
+  }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #wallTaperRow {
+    min-height: 44px;
+    margin: 6px 0 4px;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="foot"].active {
     display: grid;

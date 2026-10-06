@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle } from './pot.js';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
@@ -566,7 +566,10 @@ function dabFromHit(h) { state.dab(h.uv.x, h.uv.y, ui.size, GLAZE_INDEX[ui.glaze
 function liveCustomStatus() {
   if (!customSpec || shapeLocked()) return;
   const d = dimsCm(customSpec);
-  setStatus(`Custom shape · ${Math.round(d.ml)} ml.`);
+  const w = customSpec.wallTaper
+    ? `wall ${d.wallBase.toFixed(2)}→${d.wallRim.toFixed(2)} cm`
+    : `wall ${d.wall.toFixed(2)} cm`;
+  setStatus(`Custom shape · ${Math.round(d.ml)} ml · ${w}.`);
 }
 function queueShapePreview() {
   if (previewRaf) return;
@@ -1241,6 +1244,13 @@ function syncCustomSliders() {
   $('customRim').value = d.rim; $('customRimOut').textContent = fmtCm(d.rim);
   $('customFoot').value = d.foot; $('customFootOut').textContent = fmtCm(d.foot);
   $('customWall').value = d.wall; $('customWallOut').textContent = d.wall.toFixed(2) + ' cm';
+  ensureWall(customSpec);
+  if ($('wallRim')) {
+    $('wallRim').value = d.wallRim; $('wallRimOut').textContent = d.wallRim.toFixed(2) + ' cm';
+    $('wallMid').value = d.wallMid; $('wallMidOut').textContent = d.wallMid.toFixed(2) + ' cm';
+    $('wallBase').value = d.wallBase; $('wallBaseOut').textContent = d.wallBase.toFixed(2) + ' cm';
+    $('wallTaper').checked = !!customSpec.wallTaper;
+  }
   ensureFoot(customSpec);
   const fg = footGeom(customSpec);
   if ($('footH')) {
@@ -1276,7 +1286,11 @@ function syncCustomSliders() {
   }
   const hud = $('dimHud');
   hud.hidden = false;
-  hud.textContent = `${fmtCm(d.height)} · rim Ø ${fmtCm(d.rim)} · ${Math.round(d.ml)} ml`;
+  if (customSpec.wallTaper) {
+    hud.textContent = `${fmtCm(d.height)} · rim Ø ${fmtCm(d.rim)} · wall ${d.wallBase.toFixed(1)}→${d.wallRim.toFixed(1)} cm · ${Math.round(d.ml)} ml`;
+  } else {
+    hud.textContent = `${fmtCm(d.height)} · rim Ø ${fmtCm(d.rim)} · wall ${d.wall.toFixed(2)} cm · ${Math.round(d.ml)} ml`;
+  }
 }
 function onCustomChange() {
   if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); refreshUI(); return; }
@@ -1401,8 +1415,35 @@ if ($('footFlare')) {
   };
   $('footFlare').onchange = () => onCustomChange();
 }
-$('customWall').oninput = (e) => { if (!customSpec) return; customSpec.wall = Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+$('customWall').oninput = (e) => {
+  if (!customSpec) return;
+  setWall(customSpec, Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)));
+  rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+};
 $('customWall').onchange = () => onCustomChange();
+if ($('wallTaper')) {
+  $('wallTaper').onchange = (e) => {
+    if (!customSpec) return;
+    ensureWall(customSpec);
+    customSpec.wallTaper = !!e.target.checked;
+    if (!customSpec.wallTaper) setWall(customSpec, customSpec.wall);
+    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+    onCustomChange();
+  };
+}
+function bindWallZone(id, zone) {
+  const el = $(id);
+  if (!el) return;
+  el.oninput = (e) => {
+    if (!customSpec) return;
+    setWallZone(customSpec, zone, Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)));
+    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+  };
+  el.onchange = () => onCustomChange();
+}
+bindWallZone('wallRim', 'rim');
+bindWallZone('wallMid', 'mid');
+bindWallZone('wallBase', 'base');
 ['hPos', 'hH', 'hW', 'hT'].forEach(id => {
   $(id).oninput = () => {
     if (!customSpec) return;
@@ -1478,7 +1519,7 @@ function drawSection() {
   ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
   for (const p of pts) ctx.lineTo(X(p[0]), Y(p[1]));
   ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
-  ctx.fillStyle = '#E7E3D6'; ctx.fill(); ctx.strokeStyle = '#2148B8'; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.fillStyle = '#D9C4A8'; ctx.fill(); ctx.strokeStyle = '#2148B8'; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
   for (const p of pts) ctx.lineTo(X(-p[0]), Y(p[1]));
   ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
@@ -1488,16 +1529,34 @@ function drawSection() {
   ctx.fillStyle = '#2148B8'; ctx.font = '600 13px ui-monospace, monospace';
   ctx.fillText('SECTION', pad, 22);
   ctx.fillStyle = '#2148B8'; ctx.font = '12px ui-monospace, monospace';
-  ctx.fillText(`H ${d.height.toFixed(1)} cm   rim Ø ${d.rim.toFixed(1)} cm   foot Ø ${d.foot.toFixed(1)} cm   ${Math.round(d.ml)} ml`, pad, 40);
+  const wallNote = customSpec && customSpec.wallTaper
+    ? `wall ${d.wallBase.toFixed(2)}→${d.wallRim.toFixed(2)} cm`
+    : `wall ${(d.wall || 0).toFixed(2)} cm`;
+  ctx.fillText(`H ${d.height.toFixed(1)} cm   rim Ø ${d.rim.toFixed(1)} cm   ${wallNote}   ${Math.round(d.ml)} ml`, pad, 40);
   if (customSpec) {
     ctx.strokeStyle = '#c0391b'; ctx.lineWidth = 1;
-    const dim = (x0, y0, x1, y1, label) => {
+    const dim = (x0, y0, x1, y1, label, side = 1) => {
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.fillStyle = '#333'; ctx.font = '11px sans-serif'; ctx.fillText(label, (x0 + x1) / 2 + 4, (y0 + y1) / 2 - 4);
+      ctx.fillStyle = '#333'; ctx.font = '11px sans-serif';
+      ctx.fillText(label, (x0 + x1) / 2 + 4 * side, (y0 + y1) / 2 - 4);
     };
     const rim = customSpec.nodes[customSpec.nodes.length - 1];
     dim(X(-rim.r), Y(rim.y) - 12, X(rim.r), Y(rim.y) - 12, `Ø ${d.rim.toFixed(1)} cm`);
     dim(X(maxR) + 16, Y(0), X(maxR) + 16, Y(customSpec.nodes[customSpec.nodes.length - 1].y), `${d.height.toFixed(1)} cm`);
+    const band = (y, label) => {
+      const ro = radiusAt(customSpec, y);
+      const t = wallAt(customSpec, y);
+      const ri = Math.max(0.02, ro - t);
+      ctx.strokeStyle = '#C65F38'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(X(ri), Y(y)); ctx.lineTo(X(ro), Y(y)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(-ri), Y(y)); ctx.lineTo(X(-ro), Y(y)); ctx.stroke();
+      ctx.fillStyle = '#C65F38'; ctx.font = '600 11px ui-monospace, monospace';
+      ctx.fillText(`${label} ${(t * UNIT_CM).toFixed(2)} cm`, X(ro) + 8, Y(y) + 4);
+    };
+    const y0 = customSpec.nodes[0].y, y1 = rim.y;
+    band(y1 - 0.02, 'rim');
+    band((y0 + y1) * 0.5, 'mid');
+    band(innerFloorY(customSpec) + 0.03, 'floor');
   }
 }
 
@@ -1592,7 +1651,7 @@ function refreshUI() {
   $('customOpts').hidden = !customOn;
   $('dimHud').hidden = !customOn;
   const lock = shapeLocked();
-  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'hNodeAdd', 'hNodeSub', 'hNodeDel', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT', 'sH', 'sAz', 'sTilt', 'sLen', 'sMouth', 'footH', 'footOuter', 'footThick', 'footCarve', 'footStem', 'footFlare'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
+  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'hNodeAdd', 'hNodeSub', 'hNodeDel', 'customH', 'customRim', 'customFoot', 'customWall', 'wallRim', 'wallMid', 'wallBase', 'wallTaper', 'hPos', 'hH', 'hW', 'hT', 'sH', 'sAz', 'sTilt', 'sLen', 'sMouth', 'footH', 'footOuter', 'footThick', 'footCarve', 'footStem', 'footFlare'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
   const hNodes = customOn && customSpec ? ensureHandleNodes(customSpec) : null;
   const canDelPot = customOn && !lock && selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1;
   const canDelHandle = customOn && !lock && hNodes && selectedHandle > 0 && selectedHandle < hNodes.length - 1;
@@ -1776,8 +1835,18 @@ window.__sim = {
     if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return false; }
     if (partial.nodes) customSpec.nodes = partial.nodes.map(p => ({ r: p.r, y: p.y }));
     if (partial.bulges) customSpec.bulges = partial.bulges.map(p => ({ r: p.r, y: p.y }));
-    for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'handleAz', 'spout', 'spoutSize', 'spoutY', 'spoutLen', 'spoutTilt', 'spoutMouth', 'spoutAz', 'source', 'footThick', 'footCarve', 'footStem', 'footFlare']) {
+    for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'handleAz', 'spout', 'spoutSize', 'spoutY', 'spoutLen', 'spoutTilt', 'spoutMouth', 'spoutAz', 'source', 'footThick', 'footCarve', 'footStem', 'footFlare', 'wallRim', 'wallMid', 'wallBase']) {
       if (partial[k] !== undefined) customSpec[k] = partial[k];
+    }
+    if (partial.wallTaper !== undefined) customSpec.wallTaper = !!partial.wallTaper;
+    if (partial.wall !== undefined && partial.wallRim === undefined && partial.wallMid === undefined && partial.wallBase === undefined) {
+      setWall(customSpec, partial.wall);
+    } else {
+      ensureWall(customSpec);
+      if (partial.wallTaper === undefined && (partial.wallRim != null || partial.wallMid != null || partial.wallBase != null)) {
+        const a = customSpec.wallRim, b = customSpec.wallMid, c = customSpec.wallBase;
+        if (Math.abs(a - b) > 0.003 || Math.abs(b - c) > 0.003) customSpec.wallTaper = true;
+      }
     }
     if (partial.footStyle !== undefined) {
       if (partial.footH === undefined) setFootStyle(customSpec, partial.footStyle);
@@ -1861,6 +1930,40 @@ window.__sim = {
       stemR: g.stemR, baseR: g.baseR, carve: g.carve, recessY: g.recessY, thick: g.thick,
       floorY: innerFloorY(customSpec), waxY: pot.waxY, minY, maxY, underY, underR, midFootR,
       height: pot.height,
+    };
+  },
+  wallInfo() {
+    if (!customSpec || !pot) return null;
+    ensureWall(customSpec);
+    const R = pot.rows;
+    const rimY = customSpec.nodes[customSpec.nodes.length - 1].y;
+    const footY = customSpec.nodes[0].y;
+    const floorY = innerFloorY(customSpec);
+    const band = (yTarget, yWin = 0.04) => {
+      let outer = 0, inner = 1e9;
+      for (let k = 0; k < R.potRows; k++) {
+        if (Math.abs(R.y[k] - yTarget) > yWin) continue;
+        if (R.r[k] > outer) outer = R.r[k];
+        if (R.r[k] > 0.025 && R.r[k] < inner) inner = R.r[k];
+      }
+      return {
+        y: yTarget, outer, inner: inner < 1e8 ? inner : 0,
+        thick: inner < 1e8 ? outer - inner : 0,
+        spec: wallAt(customSpec, yTarget),
+      };
+    };
+    const d = dimsCm(customSpec);
+    return {
+      wall: customSpec.wall, wallRim: customSpec.wallRim, wallMid: customSpec.wallMid, wallBase: customSpec.wallBase,
+      taper: !!customSpec.wallTaper, floorY,
+      rim: band(rimY - 0.018, 0.045),
+      mid: band((footY + rimY) * 0.5, 0.05),
+      floor: band(floorY + 0.035, 0.05),
+      ml: d.ml, wallCm: d.wall, wallRimCm: d.wallRim, wallMidCm: d.wallMid, wallBaseCm: d.wallBase,
+      slider: {
+        min: +$('customWall').min, max: +$('customWall').max,
+        rimMin: +$('wallRim').min, rimMax: +$('wallRim').max,
+      },
     };
   },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
