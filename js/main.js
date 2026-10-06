@@ -128,7 +128,11 @@ const _texPos = new THREE.Vector2();
 const fancyMat = makePotMaterial(tex);
 const simpleMat = makeSimplePotMaterial(tex, true);
 let material = lite ? simpleMat : fancyMat;
+const pickMat = new THREE.MeshBasicMaterial();
 let pot = null, mesh = null, pickMesh = null;
+let lastTimings = null;
+let pendingFull = 0;
+let builtWaiters = [];
 
 function requestDraw() {
   drawRequested = true;
@@ -353,30 +357,49 @@ function fitBoundsInView() {
 function applyBuiltPot(built, opts = {}) {
   const t0 = performance.now();
   pot = built;
-  if (mesh) {
-    scene.remove(mesh);
-    if (mesh.geometry && mesh.geometry !== pot.geometry) mesh.geometry.dispose();
+  if (!mesh) {
+    mesh = new THREE.Mesh(pot.geometry, material);
+    scene.add(mesh);
+  } else {
+    if (mesh.geometry && mesh.geometry !== pot.geometry && !mesh.geometry.userData.pooled) mesh.geometry.dispose();
+    mesh.geometry = pot.geometry;
+    mesh.material = material;
   }
-  mesh = new THREE.Mesh(pot.geometry, material);
   const live = !opts.preview && !lite;
   mesh.castShadow = live; mesh.receiveShadow = live;
-  if (!opts.preview) {
-    if (pickMesh) {
-      if (pickMesh.geometry && pickMesh.geometry !== pot.pickGeometry) pickMesh.geometry.dispose();
-      if (pickMesh.material) pickMesh.material.dispose();
+  if (pot.pickGeometry) {
+    if (!pickMesh) pickMesh = new THREE.Mesh(pot.pickGeometry, pickMat);
+    else {
+      if (pickMesh.geometry && pickMesh.geometry !== pot.pickGeometry && !pickMesh.geometry.userData.pooled) {
+        pickMesh.geometry.dispose();
+      }
+      pickMesh.geometry = pot.pickGeometry;
     }
-    if (pot.pickGeometry) {
-      pickMesh = new THREE.Mesh(pot.pickGeometry, new THREE.MeshBasicMaterial());
-      pickMesh.updateMatrixWorld();
-    } else pickMesh = null;
+    pickMesh.updateMatrixWorld();
   }
-  scene.add(mesh);
-  markShadowsDirty();
+  if (live) markShadowsDirty();
+  const ts = performance.now();
   state.setPot(pot, opts);
+  const setPotMs = performance.now() - ts;
   lastBuildMs = performance.now() - t0;
   previewing = !!opts.preview;
   if (!opts.preview) ui.simState = 'raw';
   if (!opts.preview && !opts.noFrame) frameCamera();
+  const sp = state.lastSetPotTimes || {};
+  lastTimings = {
+    kind: opts.preview ? 'preview' : (opts.keepGlaze ? 'shape' : 'switch'),
+    geometry: built.times || null,
+    applyMesh: lastBuildMs - setPotMs,
+    setPot: setPotMs,
+    noise: sp.noise || 0,
+    clone: sp.clone || 0,
+    remap: sp.remap || 0,
+    compose: sp.compose || 0,
+    painted: !!sp.painted,
+    shadows: live,
+    material: material === fancyMat ? 'physical' : 'simple',
+    apply: lastBuildMs,
+  };
   if (opts.skipUi) {
     updateGizmoDataFromSpec();
     placeGizmos();
@@ -387,18 +410,65 @@ function applyBuiltPot(built, opts = {}) {
   rebuildGizmos();
   requestDraw();
 }
+function cancelPendingFull() {
+  if (pendingFull) {
+    clearTimeout(pendingFull);
+    pendingFull = 0;
+  }
+}
+function finishBuiltWaiters() {
+  const w = builtWaiters.splice(0);
+  for (const fn of w) fn(lastTimings);
+}
+function scheduleFullCustom() {
+  cancelPendingFull();
+  pendingFull = setTimeout(() => {
+    pendingFull = 0;
+    if (!customSpec || shapeLocked()) { finishBuiltWaiters(); return; }
+    rebuildCustom({ skipUi: true });
+    finishBuiltWaiters();
+  }, 0);
+}
+function flushBuild() {
+  cancelPendingFull();
+  if (customSpec && !shapeLocked() && previewing) rebuildCustom({ skipUi: true });
+  finishBuiltWaiters();
+  return snapshotTimings();
+}
+function whenBuilt() {
+  if (!pendingFull && !previewing) return Promise.resolve(snapshotTimings());
+  return new Promise((resolve) => builtWaiters.push(() => resolve(snapshotTimings())));
+}
+function snapshotTimings() {
+  return lastTimings ? JSON.parse(JSON.stringify(lastTimings)) : null;
+}
+function stampTotal(t0, extra = {}) {
+  if (!lastTimings) lastTimings = {};
+  lastTimings.total = performance.now() - t0;
+  lastBuildMs = lastTimings.total;
+  Object.assign(lastTimings, extra);
+}
+
 function setShape(kind) {
   if (ui.simState === 'firing') return;
+  cancelPendingFull();
   if (kind === 'custom') {
     if (ui.shape === 'custom' && customSpec) { refreshUI(); return; }
+    const t0 = performance.now();
     const src = ui.shape === 'custom' ? (customSpec?.source || 'vase') : ui.shape;
+    const te = performance.now();
     customSpec = extractCustom(src);
+    const extractMs = performance.now() - te;
     customSpec.source = src;
     selectedNode = customSpec.nodes.length - 1;
     selectedHandle = -1;
     ui.shapeGroup = 'pot';
     ui.shape = 'custom';
-    applyBuiltPot(buildCustomPot(customSpec, meshOpts()), { remap: true });
+    applyBuiltPot(buildCustomPot(customSpec, meshOpts({ preview: true })), {
+      preview: true, skipNoise: true, keepGlaze: true, skipCompose: true, remap: false,
+    });
+    stampTotal(t0, { kind: 'custom-click', extract: extractMs, deferred: true });
+    scheduleFullCustom();
     if (isMobileLayout()) {
       ui.touchMode = 'shape'; ui.touchOrbit = false; syncOrbitTouches();
       document.body.classList.add('sheet-collapsed');
@@ -414,7 +484,7 @@ function setShape(kind) {
   selectedNode = -1;
   selectedHandle = -1;
   ui.shape = kind;
-  applyBuiltPot(buildPot(kind, meshOpts()));
+  applyBuiltPot(buildPot(kind, meshOpts()), { keepGlaze: false });
   setStatus(`${kind[0].toUpperCase() + kind.slice(1)} ready. Paint some glaze, then fire.`);
   if (same) {
     if (historyArmed && !historyLock) steps.push({ kind: 'clear' });
@@ -430,17 +500,18 @@ function showingGizmos() {
 function rebuildCustom(opts = {}) {
   if (!customSpec) return;
   if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return; }
+  if (!opts.preview) cancelPendingFull();
   const t0 = performance.now();
   applyBuiltPot(buildCustomPot(customSpec, meshOpts({ preview: !!opts.preview })), {
     preview: !!opts.preview,
-    skipNoise: !!opts.preview,
-    keepGlaze: !!opts.preview,
-    skipCompose: !!opts.preview,
+    skipNoise: true,
+    keepGlaze: true,
+    skipCompose: !!opts.preview || !state._hasGlaze(),
     remap: !opts.preview,
     noFrame: true,
     skipUi: !!opts.skipUi,
   });
-  lastBuildMs = performance.now() - t0;
+  stampTotal(t0, { kind: opts.preview ? 'preview' : 'full' });
   if (!opts.preview) {
     ensureGripsInView();
     noteShape();
@@ -451,11 +522,12 @@ function rebuildCustom(opts = {}) {
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 function hitAt(clientX, clientY) {
-  if (!pickMesh) return null;
+  const target = pickMesh || mesh;
+  if (!target) return null;
   const rect = renderer.domElement.getBoundingClientRect();
   ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
   camera.updateMatrixWorld(); raycaster.setFromCamera(ndc, camera);
-  const h = raycaster.intersectObject(pickMesh, false)[0];
+  const h = raycaster.intersectObject(target, false)[0];
   return h || null;
 }
 const gizmoGroup = new THREE.Group(); gizmoGroup.renderOrder = 20; scene.add(gizmoGroup);
@@ -1030,7 +1102,7 @@ const endStroke = (e) => {
   if (shaping && (!e || e.pointerId === shapePointer || !touchPointers.size)) {
     shaping = false; shapePointer = null; shapeTarget = null;
     flushShapePreview();
-    rebuildCustom();
+    scheduleFullCustom();
     liveCustomStatus();
   }
   if (e && paintPointer !== null && e.pointerId !== paintPointer && touchPointers.size) return;
@@ -1599,7 +1671,7 @@ function syncCustomSliders() {
 }
 function onCustomChange() {
   if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); refreshUI(); return; }
-  rebuildCustom();
+  scheduleFullCustom();
   const d = dimsCm(customSpec);
   setStatus(`Custom shape · ${Math.round(d.ml)} ml.`);
 }
@@ -2062,7 +2134,24 @@ function loop() {
 resize();
 applyLayout();
 { const q = new URLSearchParams(location.search).get('seed'); if (q !== null && q !== '') state.fixedSeed = (+q) >>> 0; }
+function prewarmPrograms() {
+  if (!mesh || !renderer) return;
+  try {
+    const prev = mesh.material;
+    mesh.material = fancyMat;
+    renderer.compile(scene, camera);
+    mesh.material = simpleMat;
+    renderer.compile(scene, camera);
+    mesh.material = prev;
+    if (typeof renderer.compileAsync === 'function') {
+      renderer.compileAsync(scene, camera).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('shader prewarm failed', err);
+  }
+}
 setShape('vase');
+prewarmPrograms();
 captureBaseline();
 historyArmed = true;
 refreshUI();
@@ -2380,6 +2469,9 @@ window.__sim = {
   get fireMs() { return state.fireMs; },
   get fireWallMs() { return fireWallMs; },
   get lastBuildMs() { return lastBuildMs; },
+  get timings() { return snapshotTimings(); },
+  get previewing() { return previewing; },
+  flushBuild, whenBuilt,
   get gpu() { return infoOf(gpuProbe, true, { pref: qualityPref, lite, reason: qualityInfo.reason, antialias: gpuProbe.antialias }); },
   classifyGpu(vendor, renderer) { return classifyRenderer(vendor, renderer); },
   decideQuality(pref, gpu, frame) { return decideLite(pref, gpu, frame); },

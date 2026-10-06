@@ -22,6 +22,8 @@ export function makePotMaterial(tex) {
   });
   const uniforms = { uFx: { value: tex.fx }, uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color(1, 0.35, 0.08) } };
   mat.userData.uniforms = uniforms;
+  // Stable key so a shape switch never looks like a new program / HLSL compile.
+  mat.customProgramCacheKey = () => 'glaze-pot-physical-v1';
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader

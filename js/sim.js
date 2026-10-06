@@ -97,27 +97,78 @@ export class GlazeState {
     this.ops = [];
     this._recording = !this.host;
     this.opsStale = false;
+    this.lastSetPotTimes = null;
+    this._composed = false;
+    this._painted = false;
   }
   // Start the kiln thread early so the first Fire does not pay for module load.
   warm() { return this._ensureWorker().then(w => !!w); }
   setPot(pot, opts = {}) {
+    const t0 = performance.now();
+    const times = { noise: 0, clone: 0, remap: 0, compose: 0 };
     const prev = this.pot;
-    const prevThick = (opts.remap && prev) ? this.thick.map(a => Float32Array.from(a)) : null;
-    const prevStamp = (opts.remap && prev) ? this.stamp.map(a => Uint16Array.from(a)) : null;
+    const painted = this._hasGlaze();
     this.pot = pot;
-    if (!opts.skipNoise || !this.nLow) this._buildNoise();
-    if (prevThick) {
+    // World-space clay noise is 1024² × several fbm passes. Reuse the UV atlas across
+    // shape edits; rebuild only the first time (or when the caller forces it).
+    if (!this.nLow || (opts.rebuildNoise && !opts.skipNoise)) {
+      const tn = performance.now();
+      this._buildNoise();
+      times.noise = performance.now() - tn;
+    }
+    if (opts.remap && painted && prev) {
+      const active = this._activeGlazes();
+      const tc = performance.now();
+      const prevThick = {}, prevStamp = {};
+      for (const q of active) {
+        prevThick[q] = Float32Array.from(this.thick[q]);
+        prevStamp[q] = Uint16Array.from(this.stamp[q]);
+      }
+      times.clone = performance.now() - tc;
       for (const a of this.thick) a.fill(0);
       for (const a of this.stamp) a.fill(0);
-      this._remapGlaze(prev, prevThick, prevStamp);
+      const tr = performance.now();
+      this._remapGlaze(prev, prevThick, prevStamp, active);
+      times.remap = performance.now() - tr;
       this.fired = null; this.mode = 'raw';
       this.opsStale = true;
+      const tco = performance.now();
       this.composeRaw(0, H - 1);
+      times.compose = performance.now() - tco;
+      this._composed = true;
     } else if (opts.keepGlaze) {
-      if (!opts.skipCompose) this.composeRaw(0, H - 1);
-    } else {
+      if (!opts.skipCompose && painted) {
+        const tco = performance.now();
+        this.composeRaw(0, H - 1);
+        times.compose = performance.now() - tco;
+        this._composed = true;
+      }
+    } else if (painted || !this._composed) {
       this.clear();
+      this._composed = true;
+    } else {
+      this.clear({ skipCompose: true });
     }
+    times.painted = painted;
+    times.total = performance.now() - t0;
+    this.lastSetPotTimes = times;
+  }
+  _hasGlaze() {
+    if (this.host) return false;
+    if (this._painted) return true;
+    if (this.ops && this.ops.length) return true;
+    if (this.fired) return true;
+    return false;
+  }
+  _activeGlazes() {
+    const out = [];
+    for (let q = 0; q < this.thick.length; q++) {
+      const a = this.thick[q];
+      let hit = false;
+      for (let i = 0; i < a.length; i += 29) if (a[i] > 0.003) { hit = true; break; }
+      if (hit) out.push(q);
+    }
+    return out;
   }
   _buildNoise() {
     const R = this.pot.rows;
@@ -140,7 +191,7 @@ export class GlazeState {
       }
     }
   }
-  _remapGlaze(oldPot, thick, stamp) {
+  _remapGlaze(oldPot, thick, stamp, active) {
     const oR = oldPot.rows, nR = this.pot.rows;
     const map = new Int32Array(nR.potRows);
     for (let k = 0; k < nR.potRows; k++) {
@@ -153,8 +204,10 @@ export class GlazeState {
       }
       map[k] = best;
     }
-    for (let g = 0; g < this.thick.length; g++) {
+    const glazes = active && active.length ? active : Object.keys(thick).map(Number);
+    for (const g of glazes) {
       const srcT = thick[g], srcS = stamp[g], dstT = this.thick[g], dstS = this.stamp[g];
+      if (!srcT || !srcS) continue;
       for (let k = 0; k < nR.potRows; k++) {
         const o = map[k] * W, n = k * W;
         dstT.set(srcT.subarray(o, o + W), n);
@@ -173,12 +226,13 @@ export class GlazeState {
       }
     }
   }
-  clear() {
+  clear(opts = {}) {
     for (const a of this.thick) a.fill(0);
     for (const a of this.stamp) a.fill(0);
     this.fired = null; this.mode = 'raw'; this.strokeId = 1;
     if (this._recording) { this.ops = []; this.opsStale = false; }
-    this.composeRaw(0, H - 1);
+    this._painted = false;
+    if (!opts.skipCompose) this.composeRaw(0, H - 1);
   }
   stats() {
     return GLAZES.map((g, gi) => { let s = 0; const a = this.thick[gi]; for (let i = 0; i < N; i++) s += a[i]; return [g.id, +(s / N).toFixed(5)]; });
@@ -189,6 +243,7 @@ export class GlazeState {
     if (this._recording && !quiet) this.ops.push({ op: 'stroke' });
   }
   dab(u, v, radius, gi, amount) {
+    this._painted = true;
     if (this._recording) this.ops.push({ op: 'dab', glaze: GLAZES[gi].id, u: q4(u), v: q4(v), r: q4(radius), t: q4(amount) });
     const R = this.pot.rows, ds = R.ds, kc = Math.min(H - 1, Math.floor(v * H)), sc = v * H;
     const kr = Math.ceil(radius / ds) + 1, T = this.thick[gi], S = this.stamp[gi], sb = this.strokeBuf;
@@ -226,6 +281,7 @@ export class GlazeState {
     this.lastComposeK1 = b;
   }
   pour(gi, h, mode, amount) {
+    this._painted = true;
     if (this._recording) this.ops.push({ op: 'pour', glaze: GLAZES[gi].id, h: q4(h), mode, t: q4(amount) });
     this.beginStroke(true);
     const R = this.pot.rows, yh = h >= 0.99 ? this.pot.height + 0.2 : h <= 0.01 ? -0.2 : h * this.pot.height, T = this.thick[gi], S = this.stamp[gi];

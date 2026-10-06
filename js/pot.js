@@ -165,15 +165,59 @@ export function buildPot(kind, opts) {
   return finishPot(kind, PROFILES[kind](), opts);
 }
 export function buildCustomPot(spec, opts) {
-  return finishPot('custom', specToDef(spec), opts);
+  const t0 = performance.now();
+  const def = specToDef(spec);
+  const specMs = performance.now() - t0;
+  const built = finishPot('custom', def, opts);
+  built.times.specToDef = specMs;
+  built.times.total = performance.now() - t0;
+  return built;
+}
+
+const ATTR_POOL = new Map();
+const GEO_POOL = new Map();
+function pooledArray(key, Ctor, n) {
+  let a = ATTR_POOL.get(key);
+  if (!a || a.length < n) {
+    a = new Ctor(n);
+    ATTR_POOL.set(key, a);
+  }
+  return a;
+}
+function pooledGeo(key) {
+  let g = GEO_POOL.get(key);
+  if (!g) {
+    g = new THREE.BufferGeometry();
+    g.userData.pooled = true;
+    GEO_POOL.set(key, g);
+  }
+  return g;
+}
+function setPooledAttr(geo, name, array, item, used) {
+  const view = used < array.length ? array.subarray(0, used) : array;
+  const prev = geo.getAttribute(name);
+  if (prev && prev.array.buffer === view.buffer && prev.array.byteOffset === view.byteOffset && prev.array.length === view.length) {
+    prev.needsUpdate = true;
+  } else geo.setAttribute(name, new THREE.BufferAttribute(view, item));
+}
+function setPooledIndex(geo, array, used) {
+  const view = used < array.length ? array.subarray(0, used) : array;
+  const prev = geo.getIndex();
+  if (prev && prev.array.buffer === view.buffer && prev.array.byteOffset === view.byteOffset && prev.array.length === view.length) {
+    prev.needsUpdate = true;
+  } else geo.setIndex(new THREE.BufferAttribute(view, 1));
 }
 
 function finishPot(kind, def, opts = {}) {
+  const t0 = performance.now();
+  const times = {};
   const preview = !!opts.preview;
   const lite = !!opts.lite && !preview;
   const nRaw = preview ? 240 : lite ? 720 : 4000;
   const nDense = preview ? 400 : lite ? 960 : 6000;
-  const raw = (preview || lite ? def.path.getPoints(nRaw) : def.path.getSpacedPoints(nRaw)).map(p => [p.x, p.y]);
+  // getSpacedPoints on a custom path (many inner-wall segments) is far costlier than
+  // getPoints; resample() below already equalizes arc length.
+  const raw = def.path.getPoints(nRaw).map(p => [p.x, p.y]);
   let { pts: dense } = resample(raw, nRaw);
   // throwing ridges on near-vertical walls
   if (def.ridges > 0 && !preview && !lite) {
@@ -275,18 +319,29 @@ function finishPot(kind, def, opts = {}) {
 
   const vs = Hp / H;
   const latheN = preview ? 48 : lite ? 72 : 480, latheS = preview ? 20 : lite ? 24 : 192;
-  let geo = makeLathe(dense, latheN, latheS, vs, def);
-  let pickGeometry = preview ? null : makeLathe(dense, lite ? 96 : 200, lite ? 32 : 72, vs, def);
+  const quality = preview ? 'p' : (lite ? 'l' : 'f');
+  const tGeo = performance.now();
+  let geo = makeLathe(dense, latheN, latheS, vs, def, `lathe:${quality}:${latheN}x${latheS}`);
+  const pickN = preview ? 40 : lite ? 64 : 96, pickS = preview ? 12 : lite ? 20 : 32;
+  let pickGeometry = makeLathe(dense, pickN, pickS, vs, def, `pick:${quality}:${pickN}x${pickS}`);
+  let ei = 0;
   for (const ex of extras) {
-    geo = mergeGeo(geo, makeTube(ex, preview ? 24 : lite ? 40 : 200, preview ? 8 : lite ? 10 : 48, ex.v0, ex.v1));
-    if (pickGeometry) pickGeometry = mergeGeo(pickGeometry, makeTube(ex, lite ? 40 : 80, lite ? 10 : 16, ex.v0, ex.v1));
+    const tN = preview ? 24 : lite ? 40 : 200, tS = preview ? 8 : lite ? 10 : 48;
+    geo = mergeGeo(geo, makeTube(ex, tN, tS, ex.v0, ex.v1, `tube:${quality}:${ei}`), `merge:${quality}:${ei}:${extras.length}`);
+    pickGeometry = mergeGeo(pickGeometry, makeTube(ex, lite ? 32 : 48, lite ? 8 : 12, ex.v0, ex.v1, `ptube:${quality}:${ei}`), `pmerge:${quality}:${ei}:${extras.length}`);
+    ei++;
   }
+  times.lathe = performance.now() - tGeo;
+  times.geometry = performance.now() - t0;
+  times.latheN = latheN;
+  times.latheS = latheS;
+  times.verts = geo.attributes.position.count;
   function outerRadiusAt(h) {
     let best = 0;
     for (let k = 0; k < Hp; k++) if (Math.abs(y[k] - h) < 0.02 && r[k] > best) best = r[k];
     return best;
   }
-  return { kind, geometry: geo, pickGeometry, rows, height: def.height, waxY: def.waxY, L, outerRadiusAt, elev: def.elev };
+  return { kind, geometry: geo, pickGeometry, rows, height: def.height, waxY: def.waxY, L, outerRadiusAt, elev: def.elev, times };
 }
 
 function extraBinormal(hd) {
@@ -310,8 +365,16 @@ function extraFlat(hd, t) {
 }
 
 // tube around a curve, u around the tube (theta = u*2pi on the N/B frame), v from v0 to v1 along the curve
-function makeTube(hd, NS, SEG, v0, v1 = 1) {
-  const pos = [], nor = [], uv = [], index = [], B = extraBinormal(hd);
+function makeTube(hd, NS, SEG, v0, v1 = 1, poolKey = '') {
+  const nVert = (NS + 1) * (SEG + 1);
+  const nIdx = NS * SEG * 6;
+  const key = poolKey || `tube:${NS}x${SEG}`;
+  const pos = pooledArray(key + '.pos', Float32Array, nVert * 3);
+  const nor = pooledArray(key + '.nor', Float32Array, nVert * 3);
+  const uv = pooledArray(key + '.uv', Float32Array, nVert * 2);
+  const index = pooledArray(key + '.idx', Uint32Array, nIdx);
+  const B = extraBinormal(hd);
+  let pi = 0, ui = 0;
   for (let i = 0; i <= NS; i++) {
     const t = i / NS, c = hd.curve.getPointAt(t), T = hd.curve.getTangentAt(t), Nn = new THREE.Vector3().crossVectors(T, B).normalize();
     const rad = extraRadius(hd, t);
@@ -321,36 +384,63 @@ function makeTube(hd, NS, SEG, v0, v1 = 1) {
       const th = j / SEG * Math.PI * 2, cs = Math.cos(th), sn = Math.sin(th);
       const ox = Nn.x * cs * rad * f + B.x * sn * rad, oy = Nn.y * cs * rad * f + B.y * sn * rad, oz = Nn.z * cs * rad * f + B.z * sn * rad;
       const along = cut * cs;
-      pos.push(c.x + ox + T.x * along, c.y + oy + T.y * along, c.z + oz + T.z * along);
+      pos[pi] = c.x + ox + T.x * along; pos[pi + 1] = c.y + oy + T.y * along; pos[pi + 2] = c.z + oz + T.z * along;
       const nx = Nn.x * cs / Math.max(0.2, f) + B.x * sn, ny = Nn.y * cs / Math.max(0.2, f) + B.y * sn, nz = Nn.z * cs / Math.max(0.2, f) + B.z * sn, nl = Math.hypot(nx, ny, nz);
-      nor.push(nx / nl, ny / nl, nz / nl);
-      uv.push(j / SEG, v0 + (v1 - v0) * t);
+      nor[pi] = nx / nl; nor[pi + 1] = ny / nl; nor[pi + 2] = nz / nl;
+      uv[ui] = j / SEG; uv[ui + 1] = v0 + (v1 - v0) * t;
+      pi += 3; ui += 2;
     }
   }
-  for (let i = 0; i < NS; i++) for (let j = 0; j < SEG; j++) { const a = i * (SEG + 1) + j, b = a + SEG + 1; index.push(a, b, a + 1, a + 1, b, b + 1); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setIndex(index);
+  let ii = 0;
+  for (let i = 0; i < NS; i++) for (let j = 0; j < SEG; j++) {
+    const a = i * (SEG + 1) + j, b = a + SEG + 1;
+    index[ii++] = a; index[ii++] = b; index[ii++] = a + 1;
+    index[ii++] = a + 1; index[ii++] = b; index[ii++] = b + 1;
+  }
+  const g = pooledGeo(key);
+  setPooledAttr(g, 'position', pos, 3, nVert * 3);
+  setPooledAttr(g, 'normal', nor, 3, nVert * 3);
+  setPooledAttr(g, 'uv', uv, 2, nVert * 2);
+  setPooledIndex(g, index, nIdx);
   const A = new THREE.Vector3().fromArray(pos, 0), Bv = new THREE.Vector3().fromArray(pos, (SEG + 1) * 3), C = new THREE.Vector3().fromArray(pos, 3);
   const fn = new THREE.Vector3().subVectors(Bv, A).cross(new THREE.Vector3().subVectors(C, A));
-  if (fn.dot(new THREE.Vector3().fromArray(nor, 0)) < 0) { const ix = g.index.array; for (let q = 0; q < ix.length; q += 3) { const tmp = ix[q + 1]; ix[q + 1] = ix[q + 2]; ix[q + 2] = tmp; } }
+  if (fn.dot(new THREE.Vector3().fromArray(nor, 0)) < 0) {
+    const ix = g.index.array;
+    for (let q = 0; q < nIdx; q += 3) { const tmp = ix[q + 1]; ix[q + 1] = ix[q + 2]; ix[q + 2] = tmp; }
+  }
   return g;
 }
-function mergeGeo(a, b) {
-  const g = new THREE.BufferGeometry(), na = a.attributes.position.count;
+function mergeGeo(a, b, poolKey) {
+  const na = a.attributes.position.count, nb = b.attributes.position.count;
+  const item = { position: 3, normal: 3, uv: 2 };
+  const key = poolKey || 'merge';
+  const g = pooledGeo(key);
   for (const name of ['position', 'normal', 'uv']) {
-    const x = a.attributes[name].array, y = b.attributes[name].array, out = new Float32Array(x.length + y.length);
-    out.set(x); out.set(y, x.length); g.setAttribute(name, new THREE.BufferAttribute(out, a.attributes[name].itemSize));
+    const x = a.attributes[name].array, y = b.attributes[name].array, sz = item[name];
+    const used = (na + nb) * sz;
+    const out = pooledArray(key + '.' + name, Float32Array, used);
+    out.set(x.subarray ? x.subarray(0, na * sz) : x, 0);
+    out.set(y.subarray ? y.subarray(0, nb * sz) : y, na * sz);
+    setPooledAttr(g, name, out, sz, used);
   }
-  const ia = a.index.array, ib = b.index.array, idx = new Uint32Array(ia.length + ib.length);
-  idx.set(ia); for (let i = 0; i < ib.length; i++) idx[ia.length + i] = ib[i] + na;
-  g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeBoundingSphere();
-  a.dispose(); b.dispose();
+  const ia = a.index.array, ib = b.index.array, nia = a.index.count, nib = b.index.count;
+  const idx = pooledArray(key + '.idx', Uint32Array, nia + nib);
+  idx.set(ia.subarray ? ia.subarray(0, nia) : ia, 0);
+  for (let i = 0; i < nib; i++) idx[nia + i] = ib[i] + na;
+  setPooledIndex(g, idx, nia + nib);
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
   return g;
 }
 
-function makeLathe(dense, NS, SEG, vs = 1, def = {}) {
-  const pos = new Float32Array((NS + 1) * (SEG + 1) * 3), nor = new Float32Array(pos.length), uv = new Float32Array((NS + 1) * (SEG + 1) * 2);
+function makeLathe(dense, NS, SEG, vs = 1, def = {}, poolKey) {
+  const nVert = (NS + 1) * (SEG + 1);
+  const nIdx = NS * SEG * 6;
+  const key = poolKey || `lathe:${NS}x${SEG}`;
+  const pos = pooledArray(key + '.pos', Float32Array, nVert * 3);
+  const nor = pooledArray(key + '.nor', Float32Array, nVert * 3);
+  const uv = pooledArray(key + '.uv', Float32Array, nVert * 2);
+  const index = pooledArray(key + '.idx', Uint32Array, nIdx);
   for (let i = 0; i <= NS; i++) {
     const v = i / NS;
     const p = sampleAt(dense, v), a = sampleAt(dense, Math.max(0, v - 0.6 / NS)), b = sampleAt(dense, Math.min(1, v + 0.6 / NS));
@@ -375,23 +465,24 @@ function makeLathe(dense, NS, SEG, vs = 1, def = {}) {
       uv[idx * 2] = u; uv[idx * 2 + 1] = v * vs;
     }
   }
-  const index = [];
+  let ii = 0;
   for (let i = 0; i < NS; i++) for (let j = 0; j < SEG; j++) {
     const a = i * (SEG + 1) + j, b = a + SEG + 1, c = a + 1, d = b + 1;
-    index.push(a, c, b, c, d, b);
+    index[ii++] = a; index[ii++] = c; index[ii++] = b; index[ii++] = c; index[ii++] = d; index[ii++] = b;
   }
   {
     const i = Math.floor(NS * 0.3), a = i * (SEG + 1), b = a + SEG + 1, c = a + 1;
-    const A = new THREE.Vector3().fromArray(pos, a * 3), B = new THREE.Vector3().fromArray(pos, b * 3), C = new THREE.Vector3().fromArray(pos, c * 3);
-    const fn = new THREE.Vector3().subVectors(C, A).cross(new THREE.Vector3().subVectors(B, A));
+    const A = new THREE.Vector3().fromArray(pos, a * 3), Bv = new THREE.Vector3().fromArray(pos, b * 3), C = new THREE.Vector3().fromArray(pos, c * 3);
+    const fn = new THREE.Vector3().subVectors(C, A).cross(new THREE.Vector3().subVectors(Bv, A));
     const vn = new THREE.Vector3().fromArray(nor, a * 3);
-    if (fn.dot(vn) < 0) for (let t = 0; t < index.length; t += 3) { const tmp = index[t + 1]; index[t + 1] = index[t + 2]; index[t + 2] = tmp; }
+    if (fn.dot(vn) < 0) for (let t = 0; t < nIdx; t += 3) { const tmp = index[t + 1]; index[t + 1] = index[t + 2]; index[t + 2] = tmp; }
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setIndex(index);
+  const geo = pooledGeo(key);
+  setPooledAttr(geo, 'position', pos, 3, nVert * 3);
+  setPooledAttr(geo, 'normal', nor, 3, nVert * 3);
+  setPooledAttr(geo, 'uv', uv, 2, nVert * 2);
+  setPooledIndex(geo, index, nIdx);
+  geo.computeBoundingBox();
   geo.computeBoundingSphere();
   return geo;
 }
