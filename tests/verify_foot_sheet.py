@@ -129,8 +129,22 @@ with sync_playwright() as pw:
         vis = page.evaluate(FOOT_JS)
         print(style, json.dumps(vis))
         expect_sliders(vis, style)
+        page.evaluate('''() => {
+          const foot = document.querySelector("#customOpts .shape-group[data-group=foot]");
+          for (const el of foot.parentElement.children) {
+            if (el !== foot) el.style.display = "none";
+          }
+          const sheet = document.getElementById("sheet");
+          sheet.scrollTop = 0;
+          foot.scrollIntoView({ block: "start" });
+        }''')
+        page.wait_for_timeout(80)
         save(page, shot.replace('.png', '-view.png'))
         save_el(page, '#customOpts .shape-group[data-group="foot"]', shot)
+        page.evaluate('''() => {
+          const foot = document.querySelector("#customOpts .shape-group[data-group=foot]");
+          for (const el of foot.parentElement.children) el.style.display = "";
+        }''')
 
     page.close()
 
