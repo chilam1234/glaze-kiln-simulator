@@ -41,6 +41,16 @@ def save(page, name):
     print('saved', dest)
 
 
+def save_el(page, sel, name):
+    dest = os.path.join(OUT, name)
+    page.locator(sel).screenshot(path=dest)
+    try:
+        shutil.copy2(dest, os.path.join(ART, name))
+    except OSError:
+        pass
+    print('saved', dest)
+
+
 def check(ok, msg):
     global fail
     print(('OK  ' if ok else 'FAIL') + ' ' + msg)
@@ -119,7 +129,8 @@ with sync_playwright() as pw:
         vis = page.evaluate(FOOT_JS)
         print(style, json.dumps(vis))
         expect_sliders(vis, style)
-        save(page, shot)
+        save(page, shot.replace('.png', '-view.png'))
+        save_el(page, '#customOpts .shape-group[data-group="foot"]', shot)
 
     page.close()
 
