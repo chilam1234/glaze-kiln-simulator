@@ -95,21 +95,13 @@ with sync_playwright() as pw:
     if programs1 > programs0:
         print('FAIL: glaze switch recompiled'); fail = True
     page.evaluate('__sim.setSheet("glaze", false)')
-    page.evaluate('''() => {
-      const sheet = document.getElementById('sheet');
-      const sec = document.querySelector('#sheet > [data-sheet="glaze"]');
-      if (sheet && sec) sheet.scrollTop = sec.offsetTop;
-    }''')
     page.click('#glazeFams button[data-fam="dark"]')
+    page.locator('#glazeSearch').scroll_into_view_if_needed()
     page.wait_for_timeout(250)
     save(page, 'pc-picker-desktop.png', full=False)
     page.fill('#glazeSearch', 'PC-12')
     page.wait_for_timeout(200)
-    page.evaluate('''() => {
-      const sheet = document.getElementById('sheet');
-      const sec = document.querySelector('#sheet > [data-sheet="glaze"]');
-      if (sheet && sec) sheet.scrollTop = sec.offsetTop;
-    }''')
+    page.locator('#glazeSearch').scroll_into_view_if_needed()
     save(page, 'pc-picker-desktop-search.png', full=False)
     page.fill('#glazeSearch', '')
     page.evaluate('__sim.setGlaze("tuscanblue")')
@@ -126,30 +118,40 @@ with sync_playwright() as pw:
     m.wait_for_timeout(400)
     layout = m.evaluate('''() => {
       const fire = document.getElementById('fireBtn').getBoundingClientRect();
-      const unfire = document.getElementById('unfireBtn').getBoundingClientRect();
       const tabs = document.getElementById('mobileBar').getBoundingClientRect();
       const sheet = document.getElementById('sheet').getBoundingClientRect();
       const search = document.getElementById('glazeSearch').getBoundingClientRect();
-      const chips = [...document.querySelectorAll('button.glaze:not([hidden])')].map(el => el.getBoundingClientRect());
-      const overlap = chips.filter(c => c.bottom > fire.top + 2 && c.top < unfire.bottom);
+      const list = document.getElementById('glazes');
+      const listR = list.getBoundingClientRect();
+      const chips = [...document.querySelectorAll('button.glaze:not([hidden])')];
+      const visOverlap = chips.filter(el => {
+        const c = el.getBoundingClientRect();
+        const vis = c.bottom > listR.top + 1 && c.top < listR.bottom - 1;
+        return vis && c.bottom > fire.top + 3;
+      }).length;
       return {
         fire: { top: fire.top, bottom: fire.bottom, height: fire.height },
         tabs: { top: tabs.top, bottom: tabs.bottom, height: tabs.height },
         sheet: { top: sheet.top, bottom: sheet.bottom, height: sheet.height },
         search: { top: search.top, bottom: search.bottom },
+        list: { top: listR.top, bottom: listR.bottom, height: listR.height,
+                scroll: list.scrollHeight, client: list.clientHeight },
         n: chips.length,
         fams: document.querySelectorAll('#glazeFams button').length,
-        overlap: overlap.length,
-        lastChipBottom: chips.length ? chips[chips.length - 1].bottom : 0,
+        visOverlap,
       };
     }''')
     print('phone layout', json.dumps({k: ({kk: round(v[kk]) for kk in v} if isinstance(v, dict) else v) for k,v in layout.items()}))
     if layout['sheet']['bottom'] > layout['fire']['top'] + 4:
         print('FAIL sheet covers fire', layout['sheet']['bottom'], layout['fire']['top']); fail = True
-    if layout['sheet']['top'] + 2 < layout['tabs']['bottom'] and layout['search']['top'] < layout['tabs']['bottom'] - 4:
+    if layout['search']['top'] + 2 < layout['tabs']['bottom']:
         print('FAIL search under tabs', layout['search'], layout['tabs']); fail = True
-    if layout['overlap']:
-        print('FAIL chips overlap fire bar', layout['overlap']); fail = True
+    if layout['list']['bottom'] > layout['fire']['top'] + 4:
+        print('FAIL glaze list covers fire', layout['list']['bottom'], layout['fire']['top']); fail = True
+    if layout['visOverlap']:
+        print('FAIL visible chips overlap fire bar', layout['visOverlap']); fail = True
+    if layout['n'] > 8 and layout['list']['scroll'] <= layout['list']['client'] + 2:
+        print('FAIL dark list should scroll, scroll/client', layout['list']); fail = True
     save(m, 'pc-picker-phone.png', full=False)
     m.fill('#glazeSearch', 'flambe')
     m.wait_for_timeout(200)
