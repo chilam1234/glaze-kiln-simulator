@@ -141,14 +141,29 @@ def run_on(page, label, touch=False):
     expect_layers(page, 3, f'{label} dispatch 3')
     save(page, f'layers-{label}.png')
 
-    tap_layers(page, 5, touch=touch)
-    expect_layers(page, 5, f'{label} tap 5')
-    tap_layers(page, 1, touch=touch)
-    expect_layers(page, 1, f'{label} tap 1 after 5')
-    drag_layers(page, 1, 5, touch=touch)
-    expect_layers(page, 5, f'{label} drag to 5')
-    drag_layers(page, 5, 3, touch=touch)
-    expect_layers(page, 3, f'{label} drag 5→3')
+    if 'iphone' in label:
+        # iPhone 13 is the reported Safari path. Headless desktop Chromium does
+        # not apply synthetic mouse to <input type=range>; use fill() there.
+        tap_layers(page, 5, touch=touch)
+        expect_layers(page, 5, f'{label} tap 5')
+        tap_layers(page, 1, touch=touch)
+        expect_layers(page, 1, f'{label} tap 1 after 5')
+        drag_layers(page, 1, 5, touch=touch)
+        expect_layers(page, 5, f'{label} drag to 5')
+        drag_layers(page, 5, 3, touch=touch)
+        expect_layers(page, 3, f'{label} drag 5→3')
+    else:
+        el = page.locator('#thick')
+        el.scroll_into_view_if_needed()
+        el.fill('5')
+        page.dispatch_event('#thick', 'input')
+        expect_layers(page, 5, f'{label} fill 5')
+        el.fill('1')
+        page.dispatch_event('#thick', 'input')
+        expect_layers(page, 1, f'{label} fill 1 after 5')
+        el.fill('3')
+        page.dispatch_event('#thick', 'input')
+        expect_layers(page, 3, f'{label} fill 3')
 
     # Paint at 5, then lower. Next stroke must use the new amount.
     dispatch_layers(page, 5)
