@@ -10,9 +10,76 @@ export const LIMITS = {
   // Rim opening is independent of height: a tall pot can still flare wide.
   rimR: [0.12, 2.7],
   footR: [0.14, 1.85],
-  wall: [0.028, 0.14],
+  wall: [0.03, 0.20],           // 0.3–2.0 cm
   nodeR: [0.1, 2.7],
 };
+
+export const FOOT_LIMITS = {
+  height: [0.025, 0.88],
+  thick: [0.02, 0.36],
+  carve: [0.0, 0.24],
+  stem: [0.14, 0.82],
+  flare: [1.05, 2.45],
+};
+
+export const FOOT_STYLES = {
+  ring: { family: 'visible', label: 'Visible foot ring', defaultH: 0.13 },
+  raised: { family: 'visible', label: 'Raised foot ring', defaultH: 0.28 },
+  pedestal: { family: 'visible', label: 'Pedestal / stem', defaultH: 0.55 },
+  hidden: { family: 'hidden', label: 'Hidden foot ring', defaultH: 0.12 },
+  recessed: { family: 'hidden', label: 'Recessed foot', defaultH: 0.07 },
+  flat: { family: 'hidden', label: 'Flat base', defaultH: 0.032 },
+};
+
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+export function ensureWall(spec) {
+  if (!spec) return spec;
+  let w = spec.wall;
+  if (w == null) w = 0.055;
+  w = clamp(w, LIMITS.wall[0], LIMITS.wall[1]);
+  spec.wall = w;
+  if (spec.wallRim == null) spec.wallRim = w;
+  if (spec.wallMid == null) spec.wallMid = w;
+  if (spec.wallBase == null) spec.wallBase = w;
+  spec.wallRim = clamp(spec.wallRim, LIMITS.wall[0], LIMITS.wall[1]);
+  spec.wallMid = clamp(spec.wallMid, LIMITS.wall[0], LIMITS.wall[1]);
+  spec.wallBase = clamp(spec.wallBase, LIMITS.wall[0], LIMITS.wall[1]);
+  if (spec.wallTaper == null) spec.wallTaper = false;
+  else spec.wallTaper = !!spec.wallTaper;
+  return spec;
+}
+
+export function setWall(spec, w) {
+  w = clamp(w, LIMITS.wall[0], LIMITS.wall[1]);
+  spec.wall = w;
+  spec.wallRim = w;
+  spec.wallMid = w;
+  spec.wallBase = w;
+  return w;
+}
+
+export function setWallZone(spec, zone, w) {
+  ensureWall(spec);
+  w = clamp(w, LIMITS.wall[0], LIMITS.wall[1]);
+  spec.wallTaper = true;
+  if (zone === 'rim') spec.wallRim = w;
+  else if (zone === 'base') spec.wallBase = w;
+  else spec.wallMid = w;
+  spec.wall = spec.wallMid;
+  return w;
+}
+
+/** Clay thickness at height y. Uniform `wall` unless taper is on, then base → mid → rim. */
+export function wallAt(spec, y) {
+  ensureWall(spec);
+  if (!spec.wallTaper) return spec.wall;
+  const n = spec.nodes;
+  const y0 = n[0].y, y1 = n[n.length - 1].y;
+  const t = clamp((y - y0) / Math.max(1e-6, y1 - y0), 0, 1);
+  if (t <= 0.5) return spec.wallBase + (spec.wallMid - spec.wallBase) * (t * 2);
+  return spec.wallMid + (spec.wallRim - spec.wallMid) * ((t - 0.5) * 2);
+}
 
 export function footAndBase(p, o) {
   const { recessR, footIn, footOut, wallR, wallY } = o;
@@ -32,11 +99,26 @@ export const SPOUT_LIMITS = {
   mouth: [0.45, 2.4],
 };
 
+export function ensureFoot(spec) {
+  if (!spec) return spec;
+  if (!FOOT_STYLES[spec.footStyle]) spec.footStyle = 'ring';
+  if (spec.footH == null && spec.nodes && spec.nodes[0]) spec.footH = spec.nodes[0].y;
+  if (spec.footThick == null) spec.footThick = clamp(spec.nodes[0].r * 0.18, FOOT_LIMITS.thick[0], FOOT_LIMITS.thick[1]);
+  if (spec.footCarve == null) spec.footCarve = 0.075;
+  if (spec.footStem == null) spec.footStem = 0.42;
+  if (spec.footFlare == null) spec.footFlare = 1.55;
+  return spec;
+}
+
 export function cloneSpec(s) {
-  return {
+  return ensureWall(ensureFoot({
     nodes: s.nodes.map(p => ({ r: p.r, y: p.y })),
     bulges: s.bulges.map(p => ({ r: p.r, y: p.y })),
     wall: s.wall,
+    wallRim: s.wallRim,
+    wallMid: s.wallMid,
+    wallBase: s.wallBase,
+    wallTaper: s.wallTaper,
     handle: s.handle,
     handlePos: s.handlePos,
     handleHeight: s.handleHeight,
@@ -52,7 +134,186 @@ export function cloneSpec(s) {
     spoutMouth: s.spoutMouth,
     spoutAz: s.spoutAz,
     source: s.source,
-  };
+    footStyle: s.footStyle,
+    footH: s.footH,
+    footThick: s.footThick,
+    footCarve: s.footCarve,
+    footStem: s.footStem,
+    footFlare: s.footFlare,
+  }));
+}
+
+export function footGeom(spec) {
+  ensureFoot(spec);
+  const R = Math.max(0.12, spec.nodes[0].r);
+  const Y = Math.max(0.02, spec.nodes[0].y);
+  const style = spec.footStyle || 'ring';
+  const thick = clamp(spec.footThick ?? R * 0.18, FOOT_LIMITS.thick[0], Math.min(FOOT_LIMITS.thick[1], R * 0.62));
+  const carve = clamp(spec.footCarve ?? 0.075, FOOT_LIMITS.carve[0], FOOT_LIMITS.carve[1]);
+  const stemF = clamp(spec.footStem ?? 0.42, FOOT_LIMITS.stem[0], FOOT_LIMITS.stem[1]);
+  const flare = clamp(spec.footFlare ?? 1.55, FOOT_LIMITS.flare[0], FOOT_LIMITS.flare[1]);
+  let footOut, footIn, recessR, stemR, baseR;
+  if (style === 'pedestal') {
+    stemR = Math.max(0.055, R * stemF);
+    baseR = clamp(stemR * flare, stemR + 0.03, Math.max(R * 1.08, stemR * 1.25));
+    footOut = baseR;
+    footIn = Math.max(0.05, baseR - thick);
+    recessR = footIn * 0.7;
+  } else if (style === 'raised') {
+    footOut = clamp(R * 0.7, 0.12, R - 0.025);
+    footIn = Math.max(0.075, footOut - thick);
+    recessR = footIn * 0.76;
+    stemR = footOut;
+    baseR = footOut;
+  } else if (style === 'hidden') {
+    footOut = clamp(R * 0.56, 0.11, R * 0.72);
+    footIn = Math.max(0.075, footOut - thick);
+    recessR = footIn * 0.74;
+    stemR = footOut;
+    baseR = footOut;
+  } else if (style === 'recessed') {
+    footOut = R * 0.97;
+    footIn = Math.max(0.1, footOut - thick);
+    recessR = footIn * 0.68;
+    stemR = R;
+    baseR = R;
+  } else if (style === 'flat') {
+    footOut = R;
+    footIn = R;
+    recessR = R * 0.5;
+    stemR = R;
+    baseR = R;
+  } else {
+    footOut = R * 0.93;
+    footIn = Math.max(0.08, footOut - thick);
+    recessR = footIn * 0.76;
+    stemR = footOut;
+    baseR = footOut;
+  }
+  const recessY = style === 'recessed'
+    ? clamp(Math.max(carve, 0.055), 0.04, 0.28)
+    : clamp(carve, 0.012, Math.max(0.02, Y * 0.72));
+  return { R, Y, style, thick, carve, stemF, flare, footOut, footIn, recessR, stemR, baseR, recessY };
+}
+
+export function innerFloorY(spec) {
+  ensureFoot(spec);
+  ensureWall(spec);
+  const wall = spec.wallTaper ? spec.wallBase : spec.wall;
+  const join = spec.nodes[0].y;
+  const g = footGeom(spec);
+  if (g.style === 'pedestal' || g.style === 'raised') return join + Math.max(0.05, wall * 0.95);
+  if (g.style === 'flat') return Math.max(wall * 1.25, 0.055);
+  if (g.style === 'recessed') return Math.max(g.recessY + wall + 0.035, join + wall * 0.6);
+  return Math.max(join + 0.025, Math.min(join + wall + 0.1, Math.max(0.14, wall + 0.1)));
+}
+
+export function footWaxY(spec) {
+  const g = footGeom(spec);
+  if (g.style === 'flat') return 0.016;
+  if (g.style === 'pedestal') return Math.min(0.04, 0.02 + g.thick * 0.12);
+  if (g.style === 'recessed') return Math.min(g.Y + 0.02, Math.max(0.04, g.recessY + 0.01));
+  if (g.style === 'hidden') return Math.min(g.Y * 0.42, Math.max(0.035, g.recessY * 0.45 + 0.018));
+  if (g.style === 'raised') return Math.min(g.Y * 0.4, 0.11);
+  return Math.min(g.Y * 0.48, 0.085);
+}
+
+export function drawCustomFoot(p, spec) {
+  const g = footGeom(spec);
+  const { R, Y, style, thick, footOut, footIn, recessR, stemR, baseR, recessY } = g;
+
+  if (style === 'flat') {
+    const y0 = 0.003;
+    p.moveTo(0, y0);
+    p.lineTo(Math.max(0.08, R - 0.045), y0);
+    p.quadraticCurveTo(R - 0.012, y0, R, Math.min(0.018, Y * 0.45));
+    if (Y > 0.022) p.lineTo(R, Y);
+    else p.lineTo(R, Y);
+    return g;
+  }
+
+  if (style === 'recessed') {
+    const cy = recessY;
+    const ringOut = Math.max(footOut, R * 0.94);
+    const ringIn = Math.max(0.08, ringOut - thick);
+    p.moveTo(0, cy);
+    p.lineTo(ringIn * 0.7, cy);
+    p.quadraticCurveTo(ringIn * 0.9, cy, ringIn, cy * 0.22);
+    p.quadraticCurveTo(ringIn + thick * 0.2, 0, ringIn + thick * 0.5, 0);
+    p.lineTo(Math.max(ringIn + thick * 0.5, ringOut - 0.012), 0);
+    p.quadraticCurveTo(ringOut, 0, R, 0.01);
+    p.lineTo(R, Y);
+    return g;
+  }
+
+  if (style === 'hidden') {
+    p.moveTo(0, recessY);
+    p.lineTo(recessR, recessY);
+    p.quadraticCurveTo(footIn - 0.008, recessY * 0.32, footIn, 0);
+    p.lineTo(footOut, 0);
+    p.quadraticCurveTo(footOut + 0.01, Y * 0.26, footOut + thick * 0.12, Y * 0.4);
+    p.quadraticCurveTo(R * 0.96, Y * 0.16, R * 0.99, Y * 0.52);
+    p.quadraticCurveTo(R, Y * 0.8, R, Y);
+    return g;
+  }
+
+  if (style === 'pedestal') {
+    const cy = Math.max(0.018, Math.min(recessY, 0.07));
+    const inBase = Math.max(0.055, baseR - thick);
+    const stemTop = Math.max(cy + 0.08, Y - 0.085);
+    p.moveTo(0, cy);
+    p.lineTo(inBase * 0.68, cy);
+    p.quadraticCurveTo(inBase * 0.9, cy * 0.35, inBase, 0);
+    p.lineTo(Math.max(inBase, baseR - 0.014), 0);
+    p.quadraticCurveTo(baseR, 0, baseR, 0.028);
+    p.quadraticCurveTo(baseR * 0.5 + stemR * 0.5, Y * 0.13, stemR, Y * 0.22);
+    p.lineTo(stemR, stemTop);
+    p.quadraticCurveTo(stemR * 0.35 + R * 0.65, Y - 0.028, R, Y);
+    return g;
+  }
+
+  if (style === 'raised') {
+    p.moveTo(0, recessY);
+    p.lineTo(recessR, recessY);
+    p.quadraticCurveTo(footIn * 0.88, recessY * 0.28, footIn, 0);
+    p.lineTo(Math.max(footIn, footOut - 0.01), 0);
+    p.quadraticCurveTo(footOut, 0, footOut, 0.022);
+    p.lineTo(footOut, Math.max(0.05, Y * 0.76));
+    p.quadraticCurveTo(footOut, Y * 0.9, (footOut + R) * 0.52, Y * 0.95);
+    p.quadraticCurveTo(R * 0.9, Y, R, Y);
+    return g;
+  }
+
+  p.moveTo(0, recessY);
+  p.lineTo(recessR, recessY);
+  p.quadraticCurveTo(recessR + 0.045, recessY, recessR + 0.05, recessY * 0.32);
+  p.quadraticCurveTo(footIn - 0.004, 0, footIn + 0.018, 0);
+  p.lineTo(Math.max(footIn + 0.018, footOut - 0.018), 0);
+  p.quadraticCurveTo(footOut, 0, footOut + 0.006, 0.032);
+  p.quadraticCurveTo(footOut + 0.016, Y - 0.022, R, Y);
+  return g;
+}
+
+export function setFootH(spec, h) {
+  ensureFoot(spec);
+  h = clamp(h, FOOT_LIMITS.height[0], FOOT_LIMITS.height[1]);
+  const dy = h - spec.nodes[0].y;
+  if (Math.abs(dy) < 1e-9) {
+    spec.footH = h;
+    return;
+  }
+  for (const n of spec.nodes) n.y += dy;
+  for (const b of spec.bulges) b.y += dy;
+  if (spec.handleNodes) for (const n of spec.handleNodes) n.y += dy;
+  spec.footH = spec.nodes[0].y;
+}
+
+export function setFootStyle(spec, style) {
+  ensureFoot(spec);
+  if (!FOOT_STYLES[style]) style = 'ring';
+  spec.footStyle = style;
+  setFootH(spec, FOOT_STYLES[style].defaultH);
+  if (style === 'recessed' && spec.footCarve < 0.12) spec.footCarve = 0.14;
 }
 
 export function quadPoint(p0, c, p1, t) {
@@ -107,24 +368,40 @@ function bezierLen(p0, c, p1) {
 
 export function capacityMl(spec) {
   const pts = sampleOuter(spec, 160);
-  const wall = spec.wall;
+  const floorY = innerFloorY(spec);
   let V = 0;
   for (let i = 0; i < pts.length - 1; i++) {
-    const dy = pts[i + 1].y - pts[i].y;
-    if (dy <= 0) continue;
-    const r0 = Math.max(0, pts[i].r - wall);
-    const r1 = Math.max(0, pts[i + 1].r - wall);
-    V += Math.PI * (r0 * r0 + r1 * r1) * 0.5 * dy;
+    let y0 = pts[i].y, y1 = pts[i + 1].y;
+    let r0 = pts[i].r, r1 = pts[i + 1].r;
+    if (y1 <= y0) continue;
+    if (y1 <= floorY) continue;
+    if (y0 < floorY) {
+      const t = (floorY - y0) / (y1 - y0);
+      r0 = r0 + (r1 - r0) * t;
+      y0 = floorY;
+    }
+    const ir0 = Math.max(0, r0 - wallAt(spec, y0));
+    const ir1 = Math.max(0, r1 - wallAt(spec, y1));
+    V += Math.PI * (ir0 * ir0 + ir1 * ir1) * 0.5 * (y1 - y0);
   }
   return V * (UNIT_CM ** 3);
 }
 
 export function dimsCm(spec) {
+  ensureWall(spec);
   const h = spec.nodes[spec.nodes.length - 1].y * UNIT_CM;
   const rim = spec.nodes[spec.nodes.length - 1].r * 2 * UNIT_CM;
   const foot = spec.nodes[0].r * 2 * UNIT_CM;
-  const wall = spec.wall * UNIT_CM;
-  return { height: h, rim, foot, wall, ml: capacityMl(spec) };
+  return {
+    height: h, rim, foot,
+    wall: spec.wall * UNIT_CM,
+    wallRim: spec.wallRim * UNIT_CM,
+    wallMid: spec.wallMid * UNIT_CM,
+    wallBase: spec.wallBase * UNIT_CM,
+    taper: !!spec.wallTaper,
+    ml: capacityMl(spec),
+    floor: innerFloorY(spec) * UNIT_CM,
+  };
 }
 
 function splitSpan(spec, i, t) {
@@ -229,8 +506,6 @@ export function constrainBulge(spec, i, r, y) {
   spec.bulges[i].r = Math.min(LIMITS.nodeR[1], Math.max(0.06, r));
   spec.bulges[i].y = Math.min(hi, Math.max(lo, y));
 }
-
-function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
 function inPlane(radial, y, az) {
   return new THREE.Vector3(radial * Math.cos(az), y, radial * Math.sin(az));
@@ -539,40 +814,40 @@ function spoutCurve(spec) {
 }
 
 export function specToDef(spec) {
+  ensureFoot(spec);
+  ensureWall(spec);
   const nodes = spec.nodes;
   const foot = nodes[0];
   const rim = nodes[nodes.length - 1];
   const height = rim.y;
-  const wall = spec.wall;
+  const wRim = wallAt(spec, height);
+  const wBase = wallAt(spec, foot.y);
   const p = new THREE.Path();
   const wallY = foot.y;
-  footAndBase(p, {
-    recessR: foot.r * 0.58,
-    footIn: foot.r * 0.70,
-    footOut: foot.r * 0.91,
-    wallR: foot.r,
-    wallY,
-  });
+  drawCustomFoot(p, spec);
   for (let i = 0; i < nodes.length - 1; i++) {
     const b = spec.bulges[i];
     p.quadraticCurveTo(b.r, b.y, nodes[i + 1].r, nodes[i + 1].y);
   }
-  const rw = Math.min(wall * 0.9, 0.07);
-  p.quadraticCurveTo(rim.r + rw * 0.08, height + rw * 0.28, rim.r - wall * 0.35, height + rw * 0.12);
-  p.quadraticCurveTo(rim.r - wall, height, rim.r - wall, height - rw * 0.85);
+  // Rim lip scales with rim thickness so a 0.3 cm wall and a 2 cm wall read at the opening.
+  const rw = clamp(wRim * 0.62, 0.02, 0.15);
+  const innerRim = Math.max(0.055, rim.r - wRim);
+  p.quadraticCurveTo(rim.r + rw * 0.12, height + rw * 0.48, rim.r - wRim * 0.32, height + rw * 0.22);
+  p.quadraticCurveTo(innerRim + wRim * 0.06, height + rw * 0.04, innerRim, height - rw * 0.42);
 
   const outer = sampleOuter(spec, 140);
-  const rimCut = height - rw * 0.9;
+  const rimCut = height - rw * 0.35;
+  const floorY = innerFloorY(spec);
   for (let i = outer.length - 1; i >= 0; i--) {
-    if (outer[i].y > rimCut) continue;
+    if (outer[i].y > rimCut || outer[i].y < floorY) continue;
     const a = outer[Math.max(0, i - 1)], b = outer[Math.min(outer.length - 1, i + 1)];
     const tx = b.r - a.r, ty = b.y - a.y, tl = Math.hypot(tx, ty) || 1;
-    const nx = Math.max(0.4, ty / tl);
-    const ir = Math.max(0.03, outer[i].r - wall * nx);
-    p.lineTo(ir, outer[i].y);
+    const nx = Math.max(0.38, ty / tl);
+    const t = wallAt(spec, outer[i].y);
+    const ir = Math.max(0.03, outer[i].r - t * nx);
+    p.lineTo(ir, Math.max(floorY, outer[i].y));
   }
-  const floorY = Math.min(0.26, Math.max(0.16, wall + 0.11));
-  p.quadraticCurveTo(Math.max(0.04, foot.r - wall) * 0.45, floorY, 0, floorY);
+  p.quadraticCurveTo(Math.max(0.04, foot.r - wBase) * 0.45, floorY, 0, floorY);
 
   const handle = spec.handle === 'c' || spec.handle === 'side' ? handleCurve(spec) : null;
   const spoutTube = spec.spout === 'teapot' ? spoutCurve(spec) : null;
@@ -583,10 +858,12 @@ export function specToDef(spec) {
     amt: 0.2 * (0.8 + 0.4 * (spec.spoutMouth || spec.spoutSize || 1)),
   } : null;
   const maxR = Math.max(...nodes.map(n => n.r), ...spec.bulges.map(b => b.r));
-  const elev = height < 0.55 * maxR ? 0.74 : height < 1.15 ? 0.52 : 0.3;
+  const elev = spec.footStyle === 'pedestal' ? 0.36
+    : spec.footStyle === 'raised' ? 0.4
+    : height < 0.55 * maxR ? 0.74 : height < 1.15 ? 0.52 : 0.3;
   return {
-    path: p, height, waxY: Math.min(wallY + 0.015, 0.2), ridges: 0.002,
-    handle, spoutTube, lip, elev,
+    path: p, height, waxY: footWaxY(spec), ridges: 0.002,
+    handle, spoutTube, lip, elev, wallY,
   };
 }
 
@@ -625,7 +902,7 @@ export function extractCustom(path, meta) {
     }
   }
   let wall = 0.055;
-  if (innerR < 1e8 && outerR - innerR > 0.025 && outerR - innerR < 0.11) wall = outerR - innerR;
+  if (innerR < 1e8 && outerR - innerR > 0.025 && outerR - innerR < 0.22) wall = outerR - innerR;
   wall = Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], wall));
 
   const cap = 2 + MAX_MID;
@@ -667,6 +944,10 @@ export function extractCustom(path, meta) {
     nodes: npts,
     bulges,
     wall,
+    wallRim: wall,
+    wallMid: wall,
+    wallBase: wall,
+    wallTaper: false,
     handle: mug ? 'c' : 'none',
     handlePos: mug ? 0.22 : 0.14,
     handleHeight: mug ? Math.min(0.78, H * 0.55) : Math.min(0.65, H * 0.42),
@@ -682,5 +963,11 @@ export function extractCustom(path, meta) {
     spoutMouth: 1,
     spoutAz: mug ? Math.PI : 0,
     source: meta.kind,
+    footStyle: 'ring',
+    footH: npts[0].y,
+    footThick: clamp(npts[0].r * 0.18, FOOT_LIMITS.thick[0], FOOT_LIMITS.thick[1]),
+    footCarve: 0.075,
+    footStem: 0.42,
+    footFlare: 1.55,
   };
 }

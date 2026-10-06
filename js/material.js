@@ -1,6 +1,19 @@
 // MeshPhysicalMaterial patched with: object-space Voronoi crackle network, iron/carbon speckle, and kiln glow.
 import * as THREE from 'three';
 
+export function makeSimplePotMaterial(tex) {
+  return new THREE.MeshStandardMaterial({
+    map: tex.color,
+    roughness: 0.55,
+    roughnessMap: tex.props,
+    metalness: 0.15,
+    metalnessMap: tex.props,
+    bumpMap: tex.height,
+    bumpScale: 1.2,
+    envMapIntensity: 0.45,
+  });
+}
+
 export function makePotMaterial(tex) {
   const mat = new THREE.MeshPhysicalMaterial({
     map: tex.color, roughness: 1, roughnessMap: tex.props, metalness: 1, metalnessMap: tex.props,   // props.b = metallic glaze amount

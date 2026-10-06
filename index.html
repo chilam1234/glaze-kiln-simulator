@@ -53,6 +53,7 @@
           <button type="button" data-group="pot">Pot</button>
           <button type="button" data-group="handle">Handle</button>
           <button type="button" data-group="spout">Spout</button>
+          <button type="button" data-group="foot">Foot</button>
         </div>
         <div class="shape-group active" data-group="pot">
           <div class="dims" id="capRow"><span>Capacity</span> <b id="capOut">—</b> ml</div>
@@ -69,7 +70,16 @@
           <label class="slider">Foot Ø <output id="customFootOut"></output>
             <input type="range" id="customFoot" min="3" max="32" step="0.1"></label>
           <label class="slider">Wall <output id="customWallOut"></output>
-            <input type="range" id="customWall" min="0.3" max="1.4" step="0.05"></label>
+            <input type="range" id="customWall" min="0.3" max="2.0" step="0.05"></label>
+          <label class="check" id="wallTaperRow"><input type="checkbox" id="wallTaper"> Thickness taper</label>
+          <div class="wall-zones" id="wallZones">
+            <label class="slider">Rim wall <output id="wallRimOut"></output>
+              <input type="range" id="wallRim" min="0.3" max="2.0" step="0.05"></label>
+            <label class="slider">Mid wall <output id="wallMidOut"></output>
+              <input type="range" id="wallMid" min="0.3" max="2.0" step="0.05"></label>
+            <label class="slider">Base / floor <output id="wallBaseOut"></output>
+              <input type="range" id="wallBase" min="0.3" max="2.0" step="0.05"></label>
+          </div>
         </div>
         <div class="shape-group" data-group="handle">
           <h3>Handle</h3>
@@ -115,6 +125,33 @@
             <label class="slider">Opening <output id="sMouthOut"></output>
               <input type="range" id="sMouth" min="0.45" max="2.4" step="0.05"></label>
           </div>
+        </div>
+        <div class="shape-group" data-group="foot">
+          <h3>Foot <small>圈足</small></h3>
+          <p class="foot-fam">Visible foot <small>明腳</small></p>
+          <div class="row seg foot-styles" id="footVisible">
+            <button type="button" data-foot="ring" title="Ring clearly sticks out below the body">Foot ring</button>
+            <button type="button" data-foot="raised" title="Taller ring that lifts the vessel off the table">Raised</button>
+            <button type="button" data-foot="pedestal" title="Tall narrow stand like a goblet stem, flaring to a base">Pedestal</button>
+          </div>
+          <p class="foot-fam">Hidden foot <small>暗腳</small></p>
+          <div class="row seg foot-styles" id="footHidden">
+            <button type="button" data-foot="hidden" title="Ring tucked in so the side profile looks almost flat">Hidden ring</button>
+            <button type="button" data-foot="recessed" title="Ring carved into the bottom, flush outer edge">Recessed</button>
+            <button type="button" data-foot="flat" title="No ring, flat bottom flush to the table">Flat</button>
+          </div>
+          <label class="slider">Foot height <output id="footHOut"></output>
+            <input type="range" id="footH" min="0.3" max="8.8" step="0.05"></label>
+          <label class="slider">Foot Ø <output id="footOuterOut"></output>
+            <input type="range" id="footOuter" min="3" max="32" step="0.1"></label>
+          <label class="slider" id="footThickRow">Ring thickness <output id="footThickOut"></output>
+            <input type="range" id="footThick" min="0.2" max="3.6" step="0.05"></label>
+          <label class="slider" id="footCarveRow">Underside carve <output id="footCarveOut"></output>
+            <input type="range" id="footCarve" min="0" max="2.4" step="0.05"></label>
+          <label class="slider" id="footStemRow">Stem width <output id="footStemOut"></output>
+            <input type="range" id="footStem" min="1.4" max="12" step="0.1"></label>
+          <label class="slider" id="footFlareRow">Base flare <output id="footFlareOut"></output>
+            <input type="range" id="footFlare" min="1.05" max="2.45" step="0.05"></label>
         </div>
         <label class="check"><input type="checkbox" id="sectionView"> Cross-section drawing</label>
       </div>
@@ -190,6 +227,10 @@
 </aside>
 <main id="view">
   <p class="view-folio">The pot is the specimen</p>
+  <div id="kilnProgress" hidden>
+    <p id="kilnProgressLabel">Firing…</p>
+    <div class="kiln-bar"><i id="kilnBar"></i></div>
+  </div>
   <div id="dimHud" hidden></div>
   <div id="shapeTools" hidden>
     <button type="button" id="nodeDelHud">Delete node</button>
