@@ -151,13 +151,28 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 .gpu-fallback ol { margin: 0 0 8px; padding-left: 1.3em; }
 .gpu-fallback code { font: 12px var(--font-body); }
 body.no-gpu #view canvas { display: none; }
-.glaze-fams { margin: 0 0 6px; padding: 2px 0 6px; background: var(--panel-bg); }
-.glaze-fams button { min-height: 36px; padding: 6px 2px; font-size: 11px; letter-spacing: 0; }
-#glazes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: none; overflow: visible; padding: 0 0 12px; }
+.glaze-search { display: block; margin: 0 0 8px; }
+.glaze-search input {
+  width: 100%; min-height: 36px; padding: 7px 10px;
+  font: 12px var(--font-body); color: var(--ink);
+  background: transparent; border: 1px solid var(--btn-border); border-radius: 0;
+}
+.glaze-search input::placeholder { color: var(--text-muted); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.glaze-fams { margin: 0 0 6px; padding: 2px 0 6px; background: var(--panel-bg); flex-wrap: wrap; }
+.glaze-fams button { min-height: 36px; padding: 6px 2px; font-size: 11px; letter-spacing: 0; flex: 1 1 28%; min-width: 0; }
+#glazes { display: block; max-height: none; overflow: visible; padding: 0 0 12px; }
+#glazes .fam-group { margin: 0 0 8px; border: none; }
+#glazes .fam-group[hidden] { display: none; }
+#glazes .fam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 #glazes .fam { grid-column: 1 / -1; margin-top: 4px; padding: 2px 0; background: var(--paper);
-  color: var(--ink); font: 500 10px var(--font-body); letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid var(--panel-border); border-radius: 0; }
-.glaze[hidden], #glazes .fam[hidden] { display: none; }
-#glazes .fam:first-child { margin-top: 0; }
+  color: var(--ink); font: 500 10px var(--font-body); letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid var(--panel-border); border-radius: 0; cursor: pointer; list-style: none; }
+#glazes .fam::-webkit-details-marker { display: none; }
+.glaze[hidden], #glazes .fam[hidden], #glazes .fam-group[hidden] { display: none; }
+#glazes .fam:first-child, #glazes .fam-group:first-child .fam { margin-top: 0; }
 #glazeNow { margin: 6px 0 2px; min-height: 2.4em; }
 #glazeNow b { color: var(--amaco-navy); }
 .glaze .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -361,6 +376,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     overflow-y: auto;
     scroll-padding-top: 52px;
   }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search,
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams {
     position: sticky;
     top: 0;
@@ -369,6 +385,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     padding: 0 0 8px;
     background: var(--panel-bg);
   }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search { z-index: 4; padding-top: 2px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] > h2,
   body:not(.sheet-collapsed)[data-sheet="glaze"] #glazes .fam { display: none; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] > p.hint:not(#glazeNow) { display: none; }
@@ -535,12 +552,15 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   section { padding-bottom: 6px; }
   #shapes { gap: 6px; margin: 0; }
   #shapes button { min-height: 44px; padding: 8px 4px; font-size: 14px; }
+  .glaze-fams button { min-height: 44px; font-size: 12px; }
+  .glaze-search input { min-height: 44px; font-size: 16px; }
   #glazes {
     max-height: none;
+  }
+  #glazes .fam-grid {
     grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
-  .glaze-fams button { min-height: 44px; font-size: 13px; }
   .glaze { min-height: 44px; padding: 6px 8px; font-size: 13px; }
   .glaze .sw { width: 22px; height: 22px; }
   #tools button, #pourMode button, #pourBtn, .actions .row button, .cloud .row button, #cloudSend {
@@ -687,6 +707,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     border-bottom: 1px solid var(--panel-border);
     z-index: 6;
   }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search { margin-bottom: 4px; padding-bottom: 4px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams { margin-bottom: 4px; padding-bottom: 4px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams button { min-height: 36px; padding: 4px 2px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze { min-height: 40px; padding: 4px 6px; }

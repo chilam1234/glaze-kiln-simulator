@@ -19,7 +19,7 @@ CHROME = '/usr/bin/google-chrome'
 ARGS = ['--use-angle=swiftshader', '--use-gl=angle', '--enable-unsafe-swiftshader',
         '--ignore-gpu-blocklist', '--enable-webgl']
 SEED = 20260928
-GLAZES = ('oatmeal', 'seaweed', 'rutile', 'celadon')
+GLAZES = ('oatmeal', 'seaweed', 'rutile', 'celadon', 'bluemidnight', 'flambe')
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -97,6 +97,40 @@ def run():
         page.on('pageerror', lambda e: errors.append(f'pageerror: {e}'))
         page.goto(url)
         wait_ready(page)
+        t_nav = page.evaluate('() => performance.timing ? (performance.timing.domContentLoadedEventEnd - performance.timing.navigationStart) : 0')
+        t_ready = page.evaluate('() => performance.now()')
+        atlas = page.evaluate('() => __sim.atlas()')
+        smoke = page.evaluate('() => __sim.smokeGlazes()')
+        print('atlas', json.dumps(atlas))
+        print('smoke', json.dumps(smoke))
+        print('startup_nav_ms', t_nav, 'ready_ms', round(t_ready))
+        if smoke.get('n') != 68:
+            failed.append(f'expected 68 glazes, got {smoke.get("n")}')
+        if smoke.get('errors'):
+            failed.append(f'smoke palette errors: {smoke["errors"][:8]}')
+        picker_n = page.evaluate('() => document.querySelectorAll("button.glaze").length')
+        fams = page.evaluate("() => [...document.querySelectorAll('#glazes .fam')].map(x => x.textContent)")
+        print('picker', picker_n, fams)
+        if picker_n != 68:
+            failed.append(f'picker has {picker_n} glazes, want 68')
+        if len(fams) != 6:
+            failed.append(f'want 6 family groups, got {fams}')
+        programs0 = page.evaluate('() => __sim.programs')
+        page.evaluate('''() => {
+          const ids = __sim.glazeIds();
+          for (const id of ids) __sim.setGlaze(id);
+        }''')
+        programs1 = page.evaluate('() => __sim.programs')
+        print('programs before/after glaze switch', programs0, programs1)
+        if programs1 > programs0:
+            failed.append(f'glaze switch recompiled shaders ({programs0} -> {programs1})')
+        for cone in (6, 10):
+            page.evaluate(f'__sim.setCone({cone})')
+            prev = page.evaluate('() => __sim.previewFiredAll()')
+            print('previewFiredAll', prev)
+            if prev.get('n') != 68 or prev.get('painted', 0) < 10:
+                failed.append(f'previewFiredAll cone {cone} failed: {prev}')
+        page.evaluate('__sim.clear(); __sim.setCone(6)')
         info = page.evaluate('''() => ({
           cone: __sim.cone,
           c6: document.querySelector('#cone [data-cone="6"]').classList.contains('active'),
@@ -120,7 +154,7 @@ def run():
             png10 = paint_and_fire(page, gid, 10)
             note = page.evaluate('document.getElementById("glazeNow").innerText')
             print(f'  cone 10 in {time.time()-t0:.1f}s  note={note}')
-            if gid in ('oatmeal', 'seaweed', 'rutile', 'celadon') and 'Sheffield' not in note:
+            if gid in ('oatmeal', 'seaweed', 'rutile', 'celadon', 'palladium', 'bluemidnight') and 'Sheffield' not in note:
                 failed.append(f'{gid} should cite Sheffield cone 10 ref, got {note!r}')
             a = Image.open(__import__('io').BytesIO(png6)).convert('RGB')
             b = Image.open(__import__('io').BytesIO(png10)).convert('RGB')

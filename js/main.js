@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
-import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes } from './sim.js';
 import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
 import { makePotMaterial, makeSimplePotMaterial } from './material.js';
 import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js';
@@ -1463,8 +1463,9 @@ async function bootCloud() {
 
 // ---------- UI wiring ----------
 const $ = (id) => document.getElementById(id);
-const FAM_SHORT = { neutral: 'Whites', blues: 'Blues', warm: 'Warm', dark: 'Dark' };
+const FAM_SHORT = { neutral: 'Whites', blues: 'Blues', greens: 'Greens', purples: 'Reds', warm: 'Ambers', dark: 'Dark' };
 ui.glazeFam = GLAZES[GLAZE_INDEX[ui.glaze]].family;
+ui.glazeQuery = '';
 const famRow = $('glazeFams');
 for (const [fam, label] of FAMILIES) {
   const b = document.createElement('button');
@@ -1478,15 +1479,27 @@ for (const [fam, label] of FAMILIES) {
 }
 const gl = $('glazes');
 for (const [fam, label] of FAMILIES) {
-  const hd = document.createElement('div'); hd.className = 'fam'; hd.dataset.fam = fam; hd.textContent = label; gl.appendChild(hd);
+  const famWrap = document.createElement('details');
+  famWrap.className = 'fam-group';
+  famWrap.dataset.fam = fam;
+  famWrap.open = true;
+  const hd = document.createElement('summary'); hd.className = 'fam'; hd.dataset.fam = fam; hd.textContent = label;
+  famWrap.appendChild(hd);
+  const grid = document.createElement('div'); grid.className = 'fam-grid';
   for (const g of GLAZES.filter(x => x.family === fam)) {
-    const b = document.createElement('button'); b.className = 'glaze'; b.dataset.glaze = g.id;
+    const b = document.createElement('button'); b.className = 'glaze'; b.dataset.glaze = g.id; b.dataset.fam = fam;
     const mid = g.fired[Math.min(g.fired.length - 1, 3)][1];
     b.innerHTML = `<span class="sw" style="background:linear-gradient(135deg, ${g.raw} 50%, ${mid} 50%)"></span><span class="nm">${g.name.replace(/ ([A-Z]{1,3}-\d+)$/, '')}${/ [A-Z]{1,3}-\d+$/.test(g.name) ? `<small>${g.name.match(/[A-Z]{1,3}-\d+$/)[0]}</small>` : ''}</span>`;
     b.title = `${g.name}${g.src ? ' (colours approximated from ' + g.src + ')' : g.like ? ' (' + g.like + ')' : ''}. Swatch: raw colour | fired colour`;
     b.onclick = () => { ui.glaze = g.id; ui.glazeFam = g.family; refreshUI(); };
-    gl.appendChild(b);
+    grid.appendChild(b);
   }
+  famWrap.appendChild(grid);
+  gl.appendChild(famWrap);
+}
+const glazeSearch = $('glazeSearch');
+if (glazeSearch) {
+  glazeSearch.addEventListener('input', () => { ui.glazeQuery = glazeSearch.value; refreshUI(); });
 }
 document.querySelectorAll('#shapes button').forEach(b => b.onclick = () => ui.simState !== 'firing' && setShape(b.dataset.shape));
 document.querySelectorAll('#tools button').forEach(b => b.onclick = () => {
@@ -1980,11 +1993,21 @@ function refreshUI() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   });
-  document.querySelectorAll('#glazes .fam').forEach(el => { el.hidden = el.dataset.fam !== ui.glazeFam; });
+  const q = (ui.glazeQuery || '').trim().toLowerCase();
+  const searching = q.length > 0;
+  document.querySelectorAll('#glazes .fam-group').forEach(el => {
+    if (searching) { el.hidden = false; el.open = true; }
+    else { el.hidden = el.dataset.fam !== ui.glazeFam; el.open = true; }
+  });
   document.querySelectorAll('.glaze').forEach(b => {
     const g = GLAZES[GLAZE_INDEX[b.dataset.glaze]];
-    b.hidden = !g || g.family !== ui.glazeFam;
+    const hay = g ? `${g.name} ${g.id} ${g.src || ''} ${g.like || ''}`.toLowerCase() : '';
+    const match = !g ? false : (searching ? hay.includes(q) : g.family === ui.glazeFam);
+    b.hidden = !match;
     b.classList.toggle('active', b.dataset.glaze === ui.glaze);
+  });
+  document.querySelectorAll('#glazes .fam-group').forEach(el => {
+    if (searching) el.hidden = !el.querySelector('.glaze:not([hidden])');
   });
   { const g = GLAZES[GLAZE_INDEX[ui.glaze]]; $('glazeNow').innerHTML = `<b>${g.name}</b>${g.src ? ' &middot; source: ' + g.src : g.like ? ' &middot; ' + g.like : ''} &middot; ${cone10Note(g.id)}`; }
   const layers = layersOf(thickness[ui.glaze]);
@@ -2536,6 +2559,23 @@ window.__sim = {
   get composeMs() { return state.composeMs; },
   get dripStats() { return state.dripStats; },
   get engine() { return state.engine; },
+  smokeGlazes,
+  glazeIds() { return GLAZES.map(g => g.id); },
+  previewFiredAll() { return state.previewFiredAll(); },
+  get programs() { return (renderer.info && renderer.info.programs && renderer.info.programs.length) || 0; },
+  atlas() {
+    const ng = GLAZES.length, n = TEX_W * TEX_H;
+    const gpu = 4 * n * 4;
+    const cpuThick = ng * n * 4;
+    const cpuStamp = ng * n * 2;
+    return {
+      glazes: ng, texW: TEX_W, texH: TEX_H,
+      gpuAtlasBytes: gpu, gpuAtlasMB: +(gpu / 1e6).toFixed(2),
+      cpuThickBytes: cpuThick, cpuStampBytes: cpuStamp,
+      cpuMapsMB: +((cpuThick + cpuStamp) / 1e6).toFixed(1),
+      totalTexMB: +((gpu + cpuThick + cpuStamp) / 1e6).toFixed(1),
+    };
+  },
   // Bytes the pot will draw. `bound` is false when a firing swapped in new maps and the textures stayed on the old ones.
   shown() {
     const sum = (arr) => {

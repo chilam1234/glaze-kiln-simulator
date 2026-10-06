@@ -47,12 +47,33 @@ function buildGlazeTable(cone) {
       breakL: breakCol ? hexLin(breakCol) : null,
       variA: (vari ? [].concat(vari) : []).map(v => ({ ...v, L: hexLin(v.col) })),
       transl: g.transl || 0, rutile: g.rutile || 0, iron: g.iron || 0, metal: g.metal || 0,
+      flux: g.flux || 0, inverse: !!g.inverse,
     };
   });
 }
 G = buildGlazeTable(6);
 export function setFireCone(cone) { fireCone = cone === 10 ? 10 : 6; G = buildGlazeTable(fireCone); }
 export function getFireCone() { return fireCone; }
+export function smokeGlazes() {
+  const errors = [];
+  const cones = [];
+  for (const cone of [6, 10]) {
+    setFireCone(cone);
+    let samples = 0;
+    const col = [0, 0, 0, 0, 0];
+    for (let q = 0; q < G.length; q++) {
+      if (!G[q] || !G[q].stopsL || !G[q].stopsL.length) errors.push(`${GLAZES[q].id} cone ${cone}: missing stops`);
+      for (const t of [0.08, 0.35, 0.8, 1.4]) {
+        sampleStops(q, t, col);
+        if (!Number.isFinite(col[0] + col[1] + col[2] + col[3] + col[4])) errors.push(`${GLAZES[q].id} cone ${cone} t=${t}`);
+        samples++;
+      }
+    }
+    cones.push({ cone, n: G.length, samples });
+  }
+  setFireCone(6);
+  return { n: GLAZES.length, cones, errors };
+}
 const NG = G.length, RUTILE_GOLD = hexLin('#9a6630'), RUTILE_CREAM = hexLin('#d9c9a0');
 const nz = v => clamp01((v - 0.5) * 3.2 + 0.5);   // stretch fbm (clustered around 0.5) to ~0..1
 export const GLAZE_INDEX = Object.fromEntries(GLAZES.map((g, i) => [g.id, i]));
@@ -479,6 +500,7 @@ export class GlazeState {
     const A = act.length;
     const fired = GLAZES.map(() => null); actG.forEach((q, n) => fired[q] = act[n]);
     const fl = actG.map(q => G[q].fluidity);
+    const fx = actG.map(q => G[q].flux || 0);
     const t0 = performance.now();
     const tmp = new Float32Array(N);
     const cone10 = fireCone === 10;
@@ -548,11 +570,11 @@ export class GlazeState {
         const base = kq * st;
         for (let j = 0; j < W; j++) {
           const i = k * W + j;
-          let tot = 0, fs = 0, m1 = 0, m2 = 0;
-          for (let n = 0; n < A; n++) { const t = act[n][i]; tot += t; fs += t * fl[n]; if (t > m1) { m2 = m1; m1 = t; } else if (t > m2) m2 = t; }
+          let tot = 0, fs = 0, m1 = 0, m2 = 0, fxSum = 0;
+          for (let n = 0; n < A; n++) { const t = act[n][i]; tot += t; fs += t * fl[n]; fxSum += t * fx[n]; if (t > m1) { m2 = m1; m1 = t; } else if (t > m2) m2 = t; }
           if (tot <= T0) continue;
           const mix = m2 > 0 ? 4 * m1 * m2 / ((m1 + m2) * (m1 + m2)) : 0;
-          const F = fs / tot * (1 + 1.8 * mix);   // the top glaze fluxes the one below: overlaps melt runnier
+          const F = fs / tot * (1 + 1.8 * mix + 2.4 * (fxSum / tot));   // overlap melt + a flux top coat runs the stack
           const cf = chan[i] * smooth(0.35, 0.9, F);
           let q = base * F * (rowMod[i] + cf) * (tot - T0) * tot;
           if (q > 0.3 * (tot - T0)) q = 0.3 * (tot - T0);   // monotone/stable: never overshoot the yield thickness
@@ -598,11 +620,11 @@ export class GlazeState {
     const texPerWorld = k => W / (2 * Math.PI * Math.max(R.r[k], 0.05));
     const noiseShift = Math.floor(rnd() * W);           // shifts the coherent wander field per firing
     const potentialAt = (i, k) => {
-      let tot = 0, fs = 0, m1 = 0, m2 = 0;
-      for (let n = 0; n < A; n++) { const t = act[n][i]; tot += t; fs += t * fl[n]; if (t > m1) { m2 = m1; m1 = t; } else if (t > m2) m2 = t; }
+      let tot = 0, fs = 0, m1 = 0, m2 = 0, fxSum = 0;
+      for (let n = 0; n < A; n++) { const t = act[n][i]; tot += t; fs += t * fl[n]; fxSum += t * (G[actG[n]].flux || 0); if (t > m1) { m2 = m1; m1 = t; } else if (t > m2) m2 = t; }
       if (tot <= Tdrip) return null;
       const mix = m2 > 0 ? 4 * m1 * m2 / ((m1 + m2) * (m1 + m2)) : 0;
-      const F = fs / tot * (1 + 1.8 * mix);   // the top glaze fluxes the one below: overlaps melt runnier
+      const F = fs / tot * (1 + 1.8 * mix + 2.4 * (fxSum / tot));   // overlap melt + a flux top coat runs the stack
       return { tot, F, e: tot - Tdrip, P: (tot - Tdrip) * F * R.steep[k] };
     };
     // ---- source sampling: jittered coarse cells, probability ~ potential, irregular min spacing ----
@@ -817,8 +839,10 @@ export class GlazeState {
               else s = v.amt * smooth(0.35, 0.75, nz(0.6 * nm + 0.4 * nl2));
               cR += (vc[0] - cR) * s; cG += (vc[1] - cG) * s; cB += (vc[2] - cB) * s;
             }
-            if (gd.breakL) {  // break colour on sharp edges / rims
-              const s = (gd.breakStr ?? 0.6) * smooth(0.2, 0.7, E) * (1 - smooth(0.3, 0.9, t));
+            if (gd.breakL) {  // break colour on sharp edges / rims (inverse: the light colour where thick)
+              const s = gd.inverse
+                ? (gd.breakStr ?? 0.55) * smooth(0.2, 0.7, E) * smooth(0.35, 1.05, t)
+                : (gd.breakStr ?? 0.6) * smooth(0.2, 0.7, E) * (1 - smooth(0.3, 0.9, t));
               cR += (gd.breakL[0] - cR) * s; cG += (gd.breakL[1] - cG) * s; cB += (gd.breakL[2] - cB) * s;
             }
             const w = t * (0.15 + col[3]) * (q === top ? 1.8 : 1);   // thin translucent coats let the glaze below show
@@ -852,10 +876,10 @@ export class GlazeState {
               if (ir > 0.05) { const k2 = Math.min(0.6, ir * 0.7); rr += (RUTILE_GOLD[0] - rr) * k2; rg += (RUTILE_GOLD[1] - rg) * k2; rb += (RUTILE_GOLD[2] - rb) * k2; }
               rr = Math.max(0, rr); rg = Math.max(0, rg); rb = Math.max(0, rb);
             }
-            const hide = 1 - pc * smooth(0.25, 0.9, tt);   // a thick opaque top hides the interaction
+            const hide = 1 - pc * smooth(0.25, 0.9, tt) * (1 - 0.55 * (gT.flux || 0));   // a thick opaque top hides the interaction; a flux top keeps mixing
             const m = smooth(0.06, 0.5, fa) * hide;
             // floating: the top breaks into the colour below in cells (opaque/shino/matte) or streaks (rutile tops)
-            const fp = gT.float * (0.2 + 0.8 * I) * (1 - 0.55 * smooth(0.7, 1.5, tt)) * smooth(0.08, 0.3, fa) * smooth(0.04, 0.2, fb) * (p ? 0.75 : 1);
+            const fp = gT.float * (0.2 + 0.8 * I) * (1 - 0.55 * smooth(0.7, 1.5, tt)) * smooth(0.08, 0.3, fa) * smooth(0.04, 0.2, fb) * (p ? 0.75 : 1) * (1 + 0.85 * (gT.flux || 0));
             // top breaks into a lace over the base: base-colour cells (voronoi) or streaks (rutile tops) open as fp grows
             let fm;
             if (gT.rutile > 0.3) { const sn = 0.75 * sk + 0.25 * nm; fm = smooth(0.66 - 0.28 * fp, 0.72 - 0.28 * fp, sn); }
@@ -919,5 +943,27 @@ export class GlazeState {
     this.lastComposeK0 = 0;
     this.lastComposeK1 = H - 1;
     this.onUpload();
+  }
+  // Load every glaze palette at the current cone and composite a stripe of each. Used by tests;
+  // skips gravity flow so 68 glazes can be checked without a multi-minute kiln run.
+  previewFiredAll() {
+    const ng = G.length;
+    this.fired = GLAZES.map(() => null);
+    this.firedStamp = GLAZES.map(() => null);
+    const stripe = Math.max(4, Math.floor(W / Math.max(1, ng)));
+    for (let q = 0; q < ng; q++) {
+      const a = new Float32Array(N), st = new Uint16Array(N);
+      const j0 = (q * stripe) % W, j1 = Math.min(W, j0 + Math.max(3, stripe - 1));
+      for (let k = Math.floor(H * 0.12); k < Math.floor(H * 0.72); k++) {
+        for (let j = j0; j < j1; j++) { const i = k * W + j; a[i] = 0.7; st[i] = 1; }
+      }
+      this.fired[q] = a; this.firedStamp[q] = st;
+    }
+    this.mode = 'fired';
+    this.composeFired();
+    let painted = 0;
+    const C = this.color;
+    for (let i = 3; i < C.length; i += 97) if (C[i]) painted++;
+    return { n: ng, cone: fireCone, painted, composeMs: this.composeMs };
   }
 }

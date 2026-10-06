@@ -18,6 +18,10 @@ with sync_playwright() as pw:
     info = page.evaluate('''() => { const g = document.getElementById('glazes'); return { n: g.querySelectorAll('button.glaze').length,
         fams: [...g.querySelectorAll('.fam')].map(x => x.textContent), credit: (document.querySelector('.credit') || {}).textContent, scroll: g.scrollHeight > g.clientHeight, h: g.clientHeight, sh: g.scrollHeight }; }''')
     print('picker:', info)
+    if info['n'] < 60:
+        print('FAIL: expected ~68 glaze buttons, got', info['n']); raise SystemExit(1)
+    if len(info['fams']) != 6:
+        print('FAIL: expected 6 family groups, got', info['fams']); raise SystemExit(1)
     page.click('button[data-glaze="rutile"]'); page.mouse.move(700, 450); page.wait_for_timeout(250)
     page.locator('#panel').screenshot(path='/tmp/_pal_a.png')
     page.evaluate("document.getElementById('glazes').scrollTop = 1e4"); page.wait_for_timeout(200)
