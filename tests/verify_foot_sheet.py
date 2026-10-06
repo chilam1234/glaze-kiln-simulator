@@ -134,6 +134,7 @@ with sync_playwright() as pw:
           for (const el of foot.parentElement.children) {
             if (el !== foot) el.style.display = "none";
           }
+          document.querySelectorAll(".actions, .cloud, .credit, #status").forEach(el => { el.style.display = "none"; });
           const sheet = document.getElementById("sheet");
           const panel = document.getElementById("panel");
           sheet.style.maxHeight = "none";
@@ -148,6 +149,7 @@ with sync_playwright() as pw:
         page.evaluate('''() => {
           const foot = document.querySelector("#customOpts .shape-group[data-group=foot]");
           for (const el of foot.parentElement.children) el.style.display = "";
+          document.querySelectorAll(".actions, .cloud, .credit, #status").forEach(el => { el.style.display = ""; });
           const sheet = document.getElementById("sheet");
           const panel = document.getElementById("panel");
           sheet.style.maxHeight = "";
