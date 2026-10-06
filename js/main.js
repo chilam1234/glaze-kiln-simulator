@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=30065bd-20261006-1306';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=30065bd-20261006-1306';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=30065bd-20261006-1306';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=30065bd-20261006-1306';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=30065bd-20261006-1306';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=30065bd-20261006-1306';
-import { BUILD, BUILD_TIME } from './build-info.js?v=30065bd-20261006-1306';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=6a79c38-20261006-1519';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=6a79c38-20261006-1519';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=6a79c38-20261006-1519';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=6a79c38-20261006-1519';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=6a79c38-20261006-1519';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=6a79c38-20261006-1519';
+import { BUILD, BUILD_TIME } from './build-info.js?v=6a79c38-20261006-1519';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -314,8 +314,10 @@ let customSpec = null;
 let selectedNode = -1;
 let selectedHandle = -1;
 const LAYER = 0.3;
-const layersOf = (amount) => Math.min(5, Math.max(1, Math.round(amount / LAYER)));
-const amountOf = (layers) => layersOf(layers) * LAYER;
+const LAYER_MIN = 1, LAYER_MAX = 5;
+const clampLayers = (n) => Math.min(LAYER_MAX, Math.max(LAYER_MIN, Math.round(Number(n) || LAYER_MIN)));
+const layersOf = (amount) => clampLayers(amount / LAYER);
+const amountOf = (layers) => clampLayers(layers) * LAYER;
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
@@ -1541,9 +1543,13 @@ document.querySelectorAll('#pourMode button').forEach(b => b.onclick = () => {
   if (ui.simState !== 'raw') return;
   setStatus(ui.pourMode === 'above' ? 'Pour will cover above the dip line.' : 'Pour will cover below the dip line.');
 });
-$('thick').oninput = (e) => {
-  const layers = layersOf(+e.target.value);
-  thickness[ui.glaze] = amountOf(layers);
+function setBrushLayers(layers) {
+  const n = clampLayers(layers);
+  thickness[ui.glaze] = amountOf(n);
+  return n;
+}
+$('thick').oninput = $('thick').onchange = (e) => {
+  const layers = setBrushLayers(+e.target.value);
   refreshUI();
   const name = GLAZES[GLAZE_INDEX[ui.glaze]].name;
   setStatus(layers === 1 ? `Next stroke lays 1 layer of ${name}.` : `Next stroke lays ${layers} layers of ${name}.`);
@@ -2214,6 +2220,9 @@ window.__sim = {
   setGlaze(id) { ui.glaze = id; const g = GLAZES[GLAZE_INDEX[id]]; if (g) ui.glazeFam = g.family; refreshUI(); uploadTextures({ full: true }); requestDraw(); },
   setTool(t) { ui.tool = t; refreshUI(); },
   setThickness(v) { thickness[ui.glaze] = v; refreshUI(); },
+  setLayers(n) { setBrushLayers(n); refreshUI(); return layersOf(thickness[ui.glaze]); },
+  get layers() { return layersOf(thickness[ui.glaze]); },
+  get brushThickness() { return thickness[ui.glaze]; },
   undo: undoLast,
   setBrushSize(v) { ui.size = v; refreshUI(); },
   pour(id, h, mode = 'below', t) { if (id) { ui.glaze = id; const g = GLAZES[GLAZE_INDEX[id]]; if (g) ui.glazeFam = g.family; } ui.pourH = h; ui.pourMode = mode; if (t) thickness[ui.glaze] = t; doPour(); refreshUI(); },
