@@ -1,10 +1,10 @@
 // Glaze state stored in UV space: one thickness map + paint-order stamp map per glaze (so any number of glazes
 // can overlap per texel and we know which is on top). Painting, pouring, CPU firing simulation (leveling,
 // gravity flow with drips), and composition into the textures the shader samples.
-import { TEX_W, TEX_H } from './grid.js?v=30065bd-20261006-1306';
-import { GLAZES, pairFor, CONE10 } from './glazes.js?v=30065bd-20261006-1306';
-import { fbm3, voronoi3 } from './noise.js?v=30065bd-20261006-1306';
-import { BUILD } from './build-info.js?v=30065bd-20261006-1306';
+import { TEX_W, TEX_H } from './grid.js?v=6a79c38-20261006-1519';
+import { GLAZES, pairFor, CONE10 } from './glazes.js?v=6a79c38-20261006-1519';
+import { fbm3, voronoi3 } from './noise.js?v=6a79c38-20261006-1519';
+import { BUILD } from './build-info.js?v=6a79c38-20261006-1519';
 
 const W = TEX_W, H = TEX_H, N = W * H;
 const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
