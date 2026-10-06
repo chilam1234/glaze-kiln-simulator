@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { TEX_W, TEX_H } from './grid.js';
 import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js';
 export { TEX_W, TEX_H };
-export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld } from './shape.js';
+export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, footWaxY, setFootH, setFootStyle } from './shape.js';
 
 const PROFILES = {
   cylinder() {

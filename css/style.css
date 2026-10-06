@@ -77,6 +77,9 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 #shapes button { min-height: 32px; padding: 7px 2px; font-size: 11px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #shapes button[data-shape="custom"] { grid-column: 1 / -1; }
 #customOpts h3 { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--amaco-navy); margin: 10px 0 4px; }
+#customOpts h3 small, .foot-fam small { text-transform: none; letter-spacing: 0; font-weight: 500; opacity: .72; margin-left: 6px; }
+.foot-fam { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--amaco-navy); margin: 8px 0 4px; }
+.foot-styles button { font-size: 11px; padding: 6px 4px; }
 .shape-subtabs { display: none; }
 .shape-group { display: block; }
 #toolLock[hidden] { display: none; }
@@ -244,17 +247,23 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #customOpts .shape-group.active { display: block; }
   #handleOpts, #spoutOpts { display: block; }
   #handleOpts[hidden], #spoutOpts[hidden] { display: none !important; }
-  body[data-shape-group="spout"] #customOpts > .check { display: none; }
+  body[data-shape-group="spout"] #customOpts > .check,
+  body[data-shape-group="foot"] #customOpts > .check { display: none; }
   #customOpts .node-row button { min-height: 44px; min-width: 44px; flex-basis: 44px; font-size: 22px; }
   #customOpts .node-row button.node-del { flex-basis: auto; min-width: 72px; font-size: 14px; padding: 8px 12px; }
   #customOpts h3 { margin: 4px 0 6px; }
   #customHint { display: none; }
   body[data-shape-group="handle"] #shapes,
   body[data-shape-group="spout"] #shapes,
+  body[data-shape-group="foot"] #shapes,
   body[data-shape-group="handle"] .sheet > [data-sheet="pot"] > h2,
-  body[data-shape-group="spout"] .sheet > [data-sheet="pot"] > h2 { display: none; }
+  body[data-shape-group="spout"] .sheet > [data-sheet="pot"] > h2,
+  body[data-shape-group="foot"] .sheet > [data-sheet="pot"] > h2 { display: none; }
   body[data-shape-group="handle"] #customOpts h3,
-  body[data-shape-group="spout"] #customOpts h3 { display: none; }
+  body[data-shape-group="spout"] #customOpts h3,
+  body[data-shape-group="foot"] #customOpts h3 { display: none; }
+  .foot-styles button { min-height: 40px; font-size: 13px; padding: 6px 4px; }
+  .shape-subtabs button { font-size: 14px; padding: 8px 4px; }
   body:not(.sheet-collapsed)[data-sheet="pot"] .handle-place { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] #handleOppHint { display: none; }
   #dimHud { top: 8px; right: 8px; font-size: 11px; padding: 5px 8px; max-width: 70%; }

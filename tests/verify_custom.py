@@ -1,4 +1,4 @@
-"""Playwright: custom pot shape can be set, dragged, given extra profile nodes, a handle and spout, painted, and fired at cone 6 and 10.
+"""Playwright: custom pot shape can be set, dragged, given extra profile nodes, a handle, spout and foot, painted, and fired at cone 6 and 10.
 Writes shots/custom-*.png. Usage: python3 tests/verify_custom.py
 """
 import json, os, sys, threading, time
@@ -72,6 +72,77 @@ def wide_bowl():
         'spoutY': 0.5,
         'spoutMouth': 1,
     }
+
+
+def foot_body():
+    return {
+        'nodes': [{'r': 0.58, 'y': 0.13}, {'r': 0.98, 'y': 0.52}, {'r': 1.05, 'y': 0.95}],
+        'bulges': [{'r': 0.80, 'y': 0.30}, {'r': 1.12, 'y': 0.74}],
+        'wall': 0.055,
+        'handle': 'none',
+        'handlePos': 0.14,
+        'handleHeight': 0.42,
+        'handleWidth': 0.45,
+        'handleThick': 0.055,
+        'spout': 'none',
+        'spoutSize': 1,
+        'spoutY': 0.5,
+        'spoutMouth': 1,
+    }
+
+
+FOOT_STYLES = ('ring', 'raised', 'pedestal', 'hidden', 'recessed', 'flat')
+
+
+def apply_foot(page, style, extra=None):
+    spec = foot_body()
+    spec['footStyle'] = style
+    if extra:
+        spec.update(extra)
+    page.evaluate('(s) => __sim.setCustom(s)', spec)
+    page.wait_for_timeout(250)
+    return page.evaluate('() => __sim.footInfo()')
+
+
+def check_foot(info, style, failed, prefix='desktop'):
+    if not info:
+        failed.append(f'{prefix} {style}: footInfo missing')
+        return
+    print(f'{prefix} foot {style}', {k: (round(v, 3) if isinstance(v, float) else v) for k, v in info.items()})
+    if info.get('style') != style:
+        failed.append(f'{prefix} {style}: style stuck as {info.get("style")}')
+    if info.get('minY', 1) > 0.03:
+        failed.append(f'{prefix} {style}: pot not resting on the table minY={info.get("minY")}')
+    if info.get('minY', 0) < -0.02:
+        failed.append(f'{prefix} {style}: geometry sank below the table minY={info.get("minY")}')
+    if style == 'raised':
+        if info['joinY'] < 0.2:
+            failed.append(f'{prefix} raised: not tall enough joinY={info["joinY"]}')
+        if info['footOut'] > info['joinR'] * 0.88:
+            failed.append(f'{prefix} raised: ring should sit in from the body {info["footOut"]} vs {info["joinR"]}')
+    if style == 'pedestal':
+        if info['joinY'] < 0.35:
+            failed.append(f'{prefix} pedestal: stem too short joinY={info["joinY"]}')
+        if info['stemR'] > info['joinR'] * 0.75:
+            failed.append(f'{prefix} pedestal: stem should be narrower than the body {info["stemR"]} vs {info["joinR"]}')
+        if info['baseR'] < info['stemR'] * 1.05:
+            failed.append(f'{prefix} pedestal: base should flare {info}')
+    if style == 'hidden':
+        if info['footOut'] > info['joinR'] * 0.8:
+            failed.append(f'{prefix} hidden: ring should tuck in {info["footOut"]} vs {info["joinR"]}')
+        if info['underY'] < 0.02:
+            failed.append(f'{prefix} hidden: underside recess missing underY={info["underY"]}')
+    if style == 'recessed':
+        if info['underY'] < 0.04:
+            failed.append(f'{prefix} recessed: concave underside missing underY={info["underY"]}')
+        if abs(info['footOut'] - info['joinR']) > 0.12:
+            failed.append(f'{prefix} recessed: outer edge should stay flush {info}')
+    if style == 'flat':
+        if info['joinY'] > 0.08:
+            failed.append(f'{prefix} flat: should sit nearly flush joinY={info["joinY"]}')
+    if style == 'ring':
+        if info['footOut'] < info['joinR'] * 0.75:
+            failed.append(f'{prefix} ring: visible ring too tucked {info}')
 
 
 def tall_cylinder():
@@ -493,6 +564,61 @@ def run():
         if mouth1['root'] < mouth1['tip'] * 1.15:
             failed.append(f'spout root should stay thicker than a wide mouth {mouth1}')
 
+        foot_lim = page.evaluate('() => __sim.getLimits().foot')
+        print('foot limits', foot_lim)
+        if not foot_lim or foot_lim['height'][1] < 0.5:
+            failed.append(f'foot limits missing {foot_lim}')
+
+        page.evaluate('__sim.setShapeGroup("foot")')
+        page.wait_for_timeout(150)
+        desk_foot = page.evaluate('''() => {
+          const sec = document.querySelector('#customOpts .shape-group[data-group="foot"]');
+          const r = sec.getBoundingClientRect();
+          const tabs = getComputedStyle(document.getElementById('shapeSubtabs')).display;
+          return { h: r.height, y: r.y, tabs, styles: [...document.querySelectorAll('#footVisible button, #footHidden button')].map(b => b.dataset.foot) };
+        }''')
+        print('desktop foot section', desk_foot)
+        if desk_foot['h'] < 80:
+            failed.append(f'desktop Foot section missing {desk_foot}')
+        if desk_foot['tabs'] != 'none':
+            failed.append(f'desktop shape subtabs should stay hidden {desk_foot["tabs"]}')
+        if desk_foot['styles'] != list(FOOT_STYLES):
+            failed.append(f'desktop foot styles {desk_foot["styles"]}')
+
+        for style in FOOT_STYLES:
+            info = apply_foot(page, style)
+            check_foot(info, style, failed, 'desktop')
+            page.evaluate('__sim.setView(78, 8)')
+            page.wait_for_timeout(280)
+            save(page, f'custom-foot-{style}.png', full=False)
+            if style in ('hidden', 'recessed'):
+                page.evaluate('__sim.setView(18, -52)')
+                page.wait_for_timeout(300)
+                save(page, f'custom-foot-{style}-under.png', full=False)
+
+        apply_foot(page, 'flat', {'footH': 0.035})
+        ml_flat = page.evaluate('() => __sim.getDims().ml')
+        floor_flat = page.evaluate('() => __sim.getDims().floor')
+        apply_foot(page, 'recessed', {'footH': 0.08, 'footCarve': 0.18})
+        ml_rec = page.evaluate('() => __sim.getDims().ml')
+        floor_rec = page.evaluate('() => __sim.getDims().floor')
+        print(f'capacity flat {ml_flat:.0f} ml floor={floor_flat:.2f} vs recessed {ml_rec:.0f} ml floor={floor_rec:.2f}')
+        if floor_rec <= floor_flat:
+            failed.append(f'recessed floor should sit higher than a flat base {floor_rec} vs {floor_flat}')
+        if ml_rec >= ml_flat * 1.02:
+            failed.append(f'capacity should drop when the inner floor rises {ml_flat} -> {ml_rec}')
+
+        apply_foot(page, 'ring')
+        d0 = page.evaluate('() => __sim.getDims().foot')
+        page.evaluate('() => { document.getElementById("footOuter").value = 18; document.getElementById("footOuter").dispatchEvent(new Event("input")); document.getElementById("footOuter").dispatchEvent(new Event("change")); }')
+        page.wait_for_timeout(300)
+        d1 = page.evaluate('() => ({ foot: __sim.getDims().foot, pot: +document.getElementById("customFoot").value, tab: +document.getElementById("footOuter").value })')
+        print('foot diameter map', d0, d1)
+        if abs(d1['foot'] - d1['pot']) > 0.15 or abs(d1['foot'] - d1['tab']) > 0.15:
+            failed.append(f'Foot Ø sliders did not stay mapped {d0} -> {d1}')
+        if abs(d1['foot'] - d0) < 0.3:
+            failed.append(f'Foot Ø slider did not change diameter {d0} -> {d1}')
+
         # reset a high/angled teapot with a custom-bent handle for paint + fire
         page.evaluate('''() => __sim.setCustom({
           handle: 'c', spout: 'teapot', spoutY: 0.74, spoutTilt: 0.5, spoutLen: 1.05,
@@ -552,6 +678,58 @@ def run():
         page.evaluate('__sim.setView(50, 16)')
         page.wait_for_timeout(400)
         save(page, 'custom-fired-cone10.png', full=False)
+
+        page.click('#unfireBtn')
+        page.wait_for_function('__sim.state === "raw"', timeout=10000)
+        page.evaluate('() => __sim.setCustom({ footStyle: "raised", footH: 0.28 })')
+        page.wait_for_timeout(350)
+        raised_info = page.evaluate('() => __sim.footInfo()')
+        check_foot(raised_info, 'raised', failed, 'fired')
+        page.evaluate(f'__sim.setCone(6); __sim.setSeed({SEED})')
+        t0 = time.time()
+        page.click('#fireBtn')
+        page.wait_for_function('__sim.state === "fired"', timeout=180000)
+        print(f'raised cone 6 fired in {time.time()-t0:.1f}s', page.evaluate('__sim.dripStats'))
+        page.evaluate('__sim.setView(72, 10)')
+        page.wait_for_timeout(400)
+        save(page, 'custom-foot-raised-cone6.png', full=False)
+
+        page.click('#unfireBtn')
+        page.wait_for_function('__sim.state === "raw"', timeout=10000)
+        page.evaluate(f'__sim.setCone(10); __sim.setSeed({SEED})')
+        t0 = time.time()
+        page.click('#fireBtn')
+        page.wait_for_function('__sim.state === "fired"', timeout=180000)
+        print(f'raised cone 10 fired in {time.time()-t0:.1f}s', page.evaluate('__sim.dripStats'))
+        page.evaluate('__sim.setView(74, 10)')
+        page.wait_for_timeout(400)
+        save(page, 'custom-foot-raised-cone10.png', full=False)
+
+        page.click('#unfireBtn')
+        page.wait_for_function('__sim.state === "raw"', timeout=10000)
+        page.evaluate('() => __sim.setCustom({ footStyle: "pedestal", footH: 0.55, footStem: 0.36, footFlare: 1.7 })')
+        page.wait_for_timeout(350)
+        ped_info = page.evaluate('() => __sim.footInfo()')
+        check_foot(ped_info, 'pedestal', failed, 'fired')
+        page.evaluate(f'__sim.setCone(6); __sim.setSeed({SEED})')
+        t0 = time.time()
+        page.click('#fireBtn')
+        page.wait_for_function('__sim.state === "fired"', timeout=180000)
+        print(f'pedestal cone 6 fired in {time.time()-t0:.1f}s', page.evaluate('__sim.dripStats'))
+        page.evaluate('__sim.setView(70, 12)')
+        page.wait_for_timeout(400)
+        save(page, 'custom-foot-pedestal-cone6.png', full=False)
+
+        page.click('#unfireBtn')
+        page.wait_for_function('__sim.state === "raw"', timeout=10000)
+        page.evaluate(f'__sim.setCone(10); __sim.setSeed({SEED})')
+        t0 = time.time()
+        page.click('#fireBtn')
+        page.wait_for_function('__sim.state === "fired"', timeout=180000)
+        print(f'pedestal cone 10 fired in {time.time()-t0:.1f}s', page.evaluate('__sim.dripStats'))
+        page.evaluate('__sim.setView(68, 12)')
+        page.wait_for_timeout(400)
+        save(page, 'custom-foot-pedestal-cone10.png', full=False)
 
         if errors:
             failed.append(f'desktop console: {errors}')
@@ -724,6 +902,102 @@ def run():
         if buried:
             failed.append(f'mobile Spout sliders not reachable above fire bar: {buried}')
         save(m, 'custom-mobile-spout-tab.png', viewport=True)
+
+        m.evaluate('(s) => __sim.setCustom(s)', foot_body())
+        m.evaluate('__sim.setTouchMode("shape")')
+        m.evaluate('__sim.setSheet("pot", false)')
+        m.evaluate('__sim.setShapeGroup("foot")')
+        m.wait_for_timeout(300)
+        foot_ui = m.evaluate('''() => {
+          const ids = ['footH', 'footOuter', 'footThick', 'footCarve'];
+          const names = { footH: 'Foot height', footOuter: 'Foot Ø', footThick: 'Ring thickness', footCarve: 'Underside carve' };
+          const sheet = document.getElementById('sheet');
+          const fire = document.getElementById('fireBtn');
+          const bar = document.getElementById('mobileBar');
+          const sr = sheet.getBoundingClientRect();
+          const fr = fire.getBoundingClientRect();
+          const br = bar.getBoundingClientRect();
+          const overflowY = getComputedStyle(sheet).overflowY;
+          const sheetScrolls = overflowY === 'auto' || overflowY === 'scroll';
+          const sheetAboveFire = sr.bottom <= fr.top + 6;
+          const groups = [...document.querySelectorAll('#shapeSubtabs button')].map(b => ({
+            t: b.textContent.trim(), h: b.getBoundingClientRect().height,
+            on: b.classList.contains('active')
+          }));
+          const sliders = ids.map(id => {
+            const inp = document.getElementById(id);
+            const lab = inp.closest('label');
+            const r = lab.getBoundingClientRect();
+            const hidden = !!(lab.hidden || lab.closest('[hidden]'));
+            const visibleBox = !hidden && r.width > 0 && r.height > 0;
+            const inViewport = visibleBox && r.top >= -2 && r.bottom <= innerHeight + 2
+              && r.left >= -2 && r.right <= innerWidth + 2;
+            const aboveFire = visibleBox && r.bottom <= fr.top + 4;
+            const inScrollArea = sheet.contains(lab) && sheetScrolls && sheetAboveFire;
+            return {
+              id, name: names[id], hidden,
+              h: Math.round(r.height),
+              inputH: Math.round(inp.getBoundingClientRect().height),
+              inViewport, aboveFire,
+              reachable: hidden || (inViewport && aboveFire) || inScrollArea
+            };
+          });
+          return {
+            innerH: innerHeight,
+            sheet: { h: Math.round(sr.height), overflowY, bottom: Math.round(sr.bottom) },
+            fire: { y: Math.round(fr.y), h: Math.round(fr.height) },
+            bar: { y: Math.round(br.y), h: Math.round(br.height) },
+            sheetAboveFire, sheetScrolls,
+            fireVisible: fr.height > 0 && fr.top >= 0 && fr.bottom <= innerHeight + 2,
+            barUncovered: br.height > 0 && br.y >= 8 && br.bottom <= innerHeight + 2
+              && !(fr.y < br.bottom - 2 && fr.bottom > br.y + 2),
+            groups, sliders,
+            footTab: groups.find(g => g.t === 'Foot'),
+            shapesHidden: document.getElementById('shapes').getBoundingClientRect().height < 8
+          };
+        }''')
+        print('mobile foot sliders', json.dumps(foot_ui))
+        if not foot_ui['footTab'] or not foot_ui['footTab']['on'] or foot_ui['footTab']['h'] < 36:
+            failed.append(f'mobile Foot section tab missing {foot_ui["groups"]}')
+        if not foot_ui.get('shapesHidden'):
+            failed.append('mobile Foot tab should hide the shape grid so sliders fit')
+        if not foot_ui['fireVisible']:
+            failed.append(f'mobile fire bar not visible on Foot tab {foot_ui["fire"]}')
+        if not foot_ui['barUncovered']:
+            failed.append(f'mobile tab bar covered on Foot tab {foot_ui["bar"]} fire={foot_ui["fire"]}')
+        if not foot_ui['sheetAboveFire']:
+            failed.append(f'mobile Foot sheet overlaps fire bar {foot_ui}')
+        tiny = [s for s in foot_ui['sliders'] if not s['hidden'] and s['inputH'] < 36]
+        if tiny:
+            failed.append(f'mobile Foot sliders not 44px-class {tiny}')
+        buried_f = [s for s in foot_ui['sliders'] if not s['reachable']]
+        if buried_f:
+            failed.append(f'mobile Foot sliders not reachable above fire bar: {buried_f}')
+        save(m, 'custom-mobile-foot-tab.png', viewport=True)
+
+        for style in FOOT_STYLES:
+            info = apply_foot(m, style)
+            check_foot(info, style, failed, 'mobile')
+            if style == 'pedestal':
+                ped_ui = m.evaluate('''() => {
+                  const ids = ['footStem', 'footFlare'];
+                  const fire = document.getElementById('fireBtn').getBoundingClientRect();
+                  const sheet = document.getElementById('sheet');
+                  const overflowY = getComputedStyle(sheet).overflowY;
+                  const sheetAboveFire = sheet.getBoundingClientRect().bottom <= fire.top + 6;
+                  return ids.map(id => {
+                    const lab = document.getElementById(id).closest('label');
+                    const hidden = !!(lab.hidden || lab.closest('[hidden]'));
+                    const r = lab.getBoundingClientRect();
+                    const inScroll = sheet.contains(lab) && (overflowY === 'auto' || overflowY === 'scroll') && sheetAboveFire;
+                    const vis = !hidden && r.height > 0;
+                    return { id, hidden, inputH: Math.round(document.getElementById(id).getBoundingClientRect().height),
+                             reachable: hidden || inScroll || (vis && r.bottom <= fire.top + 4) };
+                  });
+                }''')
+                print('mobile pedestal extras', ped_ui)
+                if any(s['hidden'] or not s['reachable'] for s in ped_ui):
+                    failed.append(f'mobile pedestal sliders not reachable {ped_ui}')
 
         m.evaluate('(s) => __sim.setCustom(s)', wide_bowl())
         m.evaluate('__sim.setShapeGroup("pot")')

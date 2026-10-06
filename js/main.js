@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth } from './pot.js';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle } from './pot.js';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js';
 import { GlazeState, GLAZE_INDEX, setFireCone } from './sim.js';
 import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js';
@@ -1239,6 +1239,16 @@ function syncCustomSliders() {
   $('customRim').value = d.rim; $('customRimOut').textContent = fmtCm(d.rim);
   $('customFoot').value = d.foot; $('customFootOut').textContent = fmtCm(d.foot);
   $('customWall').value = d.wall; $('customWallOut').textContent = d.wall.toFixed(2) + ' cm';
+  ensureFoot(customSpec);
+  const fg = footGeom(customSpec);
+  if ($('footH')) {
+    $('footH').value = fg.Y * UNIT_CM; $('footHOut').textContent = fmtCm(fg.Y * UNIT_CM);
+    $('footOuter').value = d.foot; $('footOuterOut').textContent = fmtCm(d.foot);
+    $('footThick').value = fg.thick * UNIT_CM; $('footThickOut').textContent = fmtCm(fg.thick * UNIT_CM);
+    $('footCarve').value = fg.carve * UNIT_CM; $('footCarveOut').textContent = fmtCm(fg.carve * UNIT_CM);
+    $('footStem').value = fg.stemR * 2 * UNIT_CM; $('footStemOut').textContent = fmtCm(fg.stemR * 2 * UNIT_CM);
+    $('footFlare').value = fg.flare; $('footFlareOut').textContent = fg.flare.toFixed(2) + '×';
+  }
   $('capOut').textContent = Math.round(d.ml);
   const mid = Math.max(0, customSpec.nodes.length - 2);
   const nc = $('nodeCount'); if (nc) nc.textContent = `${mid}/${MAX_MID}`;
@@ -1344,6 +1354,51 @@ $('customRim').oninput = (e) => { if (!customSpec) return; setRimR(customSpec, +
 $('customRim').onchange = () => onCustomChange();
 $('customFoot').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
 $('customFoot').onchange = () => onCustomChange();
+if ($('footOuter')) {
+  $('footOuter').oninput = (e) => { if (!customSpec) return; setFootR(customSpec, +e.target.value / UNIT_CM / 2); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+  $('footOuter').onchange = () => onCustomChange();
+}
+if ($('footH')) {
+  $('footH').oninput = (e) => { if (!customSpec) return; setFootH(customSpec, +e.target.value / UNIT_CM); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
+  $('footH').onchange = () => onCustomChange();
+}
+if ($('footThick')) {
+  $('footThick').oninput = (e) => {
+    if (!customSpec) return;
+    ensureFoot(customSpec);
+    customSpec.footThick = Math.min(FOOT_LIMITS.thick[1], Math.max(FOOT_LIMITS.thick[0], +e.target.value / UNIT_CM));
+    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+  };
+  $('footThick').onchange = () => onCustomChange();
+}
+if ($('footCarve')) {
+  $('footCarve').oninput = (e) => {
+    if (!customSpec) return;
+    ensureFoot(customSpec);
+    customSpec.footCarve = Math.min(FOOT_LIMITS.carve[1], Math.max(FOOT_LIMITS.carve[0], +e.target.value / UNIT_CM));
+    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+  };
+  $('footCarve').onchange = () => onCustomChange();
+}
+if ($('footStem')) {
+  $('footStem').oninput = (e) => {
+    if (!customSpec) return;
+    ensureFoot(customSpec);
+    const r = Math.max(0.12, customSpec.nodes[0].r);
+    customSpec.footStem = Math.min(FOOT_LIMITS.stem[1], Math.max(FOOT_LIMITS.stem[0], (+e.target.value / UNIT_CM / 2) / r));
+    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+  };
+  $('footStem').onchange = () => onCustomChange();
+}
+if ($('footFlare')) {
+  $('footFlare').oninput = (e) => {
+    if (!customSpec) return;
+    ensureFoot(customSpec);
+    customSpec.footFlare = Math.min(FOOT_LIMITS.flare[1], Math.max(FOOT_LIMITS.flare[0], +e.target.value));
+    rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus();
+  };
+  $('footFlare').onchange = () => onCustomChange();
+}
 $('customWall').oninput = (e) => { if (!customSpec) return; customSpec.wall = Math.min(LIMITS.wall[1], Math.max(LIMITS.wall[0], +e.target.value / UNIT_CM)); rebuildCustom({ preview: true, skipUi: true }); syncCustomSliders(); liveCustomStatus(); };
 $('customWall').onchange = () => onCustomChange();
 ['hPos', 'hH', 'hW', 'hT'].forEach(id => {
@@ -1390,6 +1445,11 @@ document.querySelectorAll('#shapeSubtabs button').forEach(b => b.onclick = () =>
 document.querySelectorAll('#spoutType button').forEach(b => b.onclick = () => {
   if (!customSpec || shapeLocked()) return;
   customSpec.spout = b.dataset.spout;
+  onCustomChange();
+});
+document.querySelectorAll('#footVisible button, #footHidden button').forEach(b => b.onclick = () => {
+  if (!customSpec || shapeLocked()) return;
+  setFootStyle(customSpec, b.dataset.foot);
   onCustomChange();
 });
 $('sectionView').onchange = (e) => { ui.section = e.target.checked; refreshUI(); drawSection(); };
@@ -1530,7 +1590,7 @@ function refreshUI() {
   $('customOpts').hidden = !customOn;
   $('dimHud').hidden = !customOn;
   const lock = shapeLocked();
-  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'hNodeAdd', 'hNodeSub', 'hNodeDel', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT', 'sH', 'sAz', 'sTilt', 'sLen', 'sMouth'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
+  ['nodeAdd', 'nodeSub', 'nodeDel', 'nodeDelHud', 'hNodeAdd', 'hNodeSub', 'hNodeDel', 'customH', 'customRim', 'customFoot', 'customWall', 'hPos', 'hH', 'hW', 'hT', 'sH', 'sAz', 'sTilt', 'sLen', 'sMouth', 'footH', 'footOuter', 'footThick', 'footCarve', 'footStem', 'footFlare'].forEach(id => { const el = $(id); if (el) el.disabled = lock || !customOn; });
   const hNodes = customOn && customSpec ? ensureHandleNodes(customSpec) : null;
   const canDelPot = customOn && !lock && selectedNode > 0 && customSpec && selectedNode < customSpec.nodes.length - 1;
   const canDelHandle = customOn && !lock && hNodes && selectedHandle > 0 && selectedHandle < hNodes.length - 1;
@@ -1557,6 +1617,16 @@ function refreshUI() {
     b.classList.toggle('active', customOn && customSpec.spout === b.dataset.spout);
     b.disabled = lock || !customOn;
   });
+  document.querySelectorAll('#footVisible button, #footHidden button').forEach(b => {
+    b.classList.toggle('active', customOn && customSpec.footStyle === b.dataset.foot);
+    b.disabled = lock || !customOn;
+  });
+  const pedestal = customOn && customSpec.footStyle === 'pedestal';
+  const flatFoot = customOn && customSpec.footStyle === 'flat';
+  if ($('footStemRow')) $('footStemRow').hidden = !pedestal;
+  if ($('footFlareRow')) $('footFlareRow').hidden = !pedestal;
+  if ($('footThickRow')) $('footThickRow').hidden = !!flatFoot;
+  if ($('footCarveRow')) $('footCarveRow').hidden = !!flatFoot;
   $('handleOpts').hidden = !customOn || customSpec.handle === 'none';
   const hasSpout = customOn && customSpec.spout !== 'none';
   const teapot = customOn && customSpec.spout === 'teapot';
@@ -1699,9 +1769,15 @@ window.__sim = {
     if (shapeLocked()) { setStatus('Unfire first to edit the shape.'); return false; }
     if (partial.nodes) customSpec.nodes = partial.nodes.map(p => ({ r: p.r, y: p.y }));
     if (partial.bulges) customSpec.bulges = partial.bulges.map(p => ({ r: p.r, y: p.y }));
-    for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'handleAz', 'spout', 'spoutSize', 'spoutY', 'spoutLen', 'spoutTilt', 'spoutMouth', 'spoutAz', 'source']) {
+    for (const k of ['wall', 'handle', 'handlePos', 'handleHeight', 'handleWidth', 'handleThick', 'handleAz', 'spout', 'spoutSize', 'spoutY', 'spoutLen', 'spoutTilt', 'spoutMouth', 'spoutAz', 'source', 'footThick', 'footCarve', 'footStem', 'footFlare']) {
       if (partial[k] !== undefined) customSpec[k] = partial[k];
     }
+    if (partial.footStyle !== undefined) {
+      if (partial.footH === undefined) setFootStyle(customSpec, partial.footStyle);
+      else customSpec.footStyle = FOOT_STYLES[partial.footStyle] ? partial.footStyle : 'ring';
+    }
+    if (partial.footH !== undefined) setFootH(customSpec, partial.footH);
+    ensureFoot(customSpec);
     if (partial.handleNodes) customSpec.handleNodes = partial.handleNodes.map(p => ({ r: p.r, y: p.y }));
     else if (partial.handle !== undefined && partial.handleNodes === undefined) resetHandleNodes(customSpec);
     rebuildCustom();
@@ -1750,9 +1826,36 @@ window.__sim = {
     rebuildCustom();
     return true;
   },
-  setShapeGroup(name) { ui.shapeGroup = name === 'handle' || name === 'spout' ? name : 'pot'; refreshUI(); },
+  setShapeGroup(name) { ui.shapeGroup = (name === 'handle' || name === 'spout' || name === 'foot') ? name : 'pot'; refreshUI(); },
   get shapeGroup() { return ui.shapeGroup; },
-  getLimits() { return { ...LIMITS, maxMid: MAX_MID }; },
+  getLimits() { return { ...LIMITS, maxMid: MAX_MID, foot: FOOT_LIMITS }; },
+  footInfo() {
+    if (!customSpec || !pot) return null;
+    const g = footGeom(customSpec);
+    let minY = 1e9, maxY = -1e9, underY = 0, underR = 1e9;
+    const R = pot.rows, n0 = Math.max(8, Math.floor(R.potRows * 0.2));
+    for (let k = 0; k < R.potRows; k++) {
+      if (R.y[k] < minY) minY = R.y[k];
+      if (R.y[k] > maxY) maxY = R.y[k];
+    }
+    for (let k = 0; k < n0; k++) {
+      if (R.r[k] < underR) { underR = R.r[k]; underY = R.y[k]; }
+    }
+    let midFootR = g.R;
+    const midY = g.Y * 0.5;
+    let bestD = 1e9;
+    for (let k = 0; k < R.potRows; k++) {
+      if (R.nr[k] <= 0.05) continue;
+      const d = Math.abs(R.y[k] - midY);
+      if (d < bestD) { bestD = d; midFootR = R.r[k]; }
+    }
+    return {
+      style: g.style, joinY: g.Y, joinR: g.R, footOut: g.footOut, footIn: g.footIn,
+      stemR: g.stemR, baseR: g.baseR, carve: g.carve, recessY: g.recessY, thick: g.thick,
+      floorY: innerFloorY(customSpec), waxY: pot.waxY, minY, maxY, underY, underR, midFootR,
+      height: pot.height,
+    };
+  },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
   gizmoScreen(kind, index) { return gizmoScreenOf(kind, index); },
   profileScreen(y) {
