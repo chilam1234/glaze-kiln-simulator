@@ -291,17 +291,64 @@ const amountOf = (layers) => layersOf(layers) * LAYER;
 const thickness = Object.fromEntries(GLAZES.map(g => [g.id, g.defaultThickness]));
 
 function frameCamera() {
+  if (!pot || !controls) return;
   pot.geometry.computeBoundingBox();
   const bb = pot.geometry.boundingBox;
-  const h = Math.max(pot.height, bb.max.y);
-  const rMax = Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z, 0.4);
-  const spanY = Math.max(0.2, bb.max.y - bb.min.y);
-  const target = new THREE.Vector3(0, (bb.min.y + bb.max.y) * 0.42, 0);
-  const dist = Math.max(h, rMax * 2.1, spanY * 1.2) * 2.7;
+  const center = new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5);
+  const size = new THREE.Vector3().subVectors(bb.max, bb.min);
+  const spanY = Math.max(0.2, size.y);
+  const rMax = Math.max(size.x, size.z, 0.4) * 0.5;
   const el = pot.elev ?? (pot.kind === 'bowl' ? 0.62 : 0.3);
-  camera.position.set(0, target.y + Math.sin(el) * dist, Math.cos(el) * dist);
-  controls.target.copy(target); controls.update();
+  const aspect = Math.max(0.2, camera.aspect || 1);
+  const vHalf = THREE.MathUtils.degToRad(camera.fov * 0.5);
+  const hHalf = Math.atan(Math.tan(vHalf) * aspect);
+  const sheetOpen = isMobileLayout() && !document.body.classList.contains('sheet-collapsed');
+  const pad = sheetOpen ? 1.38 : 1.18;
+  const radius = 0.5 * Math.hypot(size.x, size.y, size.z);
+  const dist = Math.max(
+    (spanY * 0.5 * pad) / Math.tan(vHalf),
+    (rMax * pad) / Math.tan(hHalf),
+    (radius * pad) / Math.sin(Math.min(vHalf, hHalf)),
+    spanY * 1.35,
+  );
+  controls.target.copy(center);
+  camera.position.set(center.x, center.y + Math.sin(el) * dist, center.z + Math.cos(el) * dist);
+  camera.lookAt(center);
+  controls.update();
+  fitBoundsInView();
   ensureGripsInView();
+}
+function fitBoundsInView() {
+  if (!pot || !controls) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) return;
+  pot.geometry.computeBoundingBox();
+  const bb = pot.geometry.boundingBox;
+  const corners = [];
+  for (const x of [bb.min.x, bb.max.x]) for (const y of [bb.min.y, bb.max.y]) for (const z of [bb.min.z, bb.max.z]) corners.push(new THREE.Vector3(x, y, z));
+  const pad = isMobileLayout() ? 0.14 : 0.08;
+  const v = new THREE.Vector3();
+  for (let iter = 0; iter < 12; iter++) {
+    camera.updateMatrixWorld();
+    camera.updateProjectionMatrix();
+    let minX = 1, maxX = -1, minY = 1, maxY = -1;
+    for (const c of corners) {
+      v.copy(c).project(camera);
+      minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+      minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+    }
+    const limit = 1 - pad;
+    const ox = Math.max(0, maxX - limit, -limit - minX);
+    const oy = Math.max(0, maxY - limit, -limit - minY);
+    if (ox < 0.012 && oy < 0.012) return;
+    const t = controls.target;
+    const off = camera.position.clone().sub(t);
+    off.multiplyScalar(1 + Math.max(ox, oy) * 0.9);
+    if (maxY > limit) t.y += (maxY - limit) * 0.12 * off.length();
+    if (minY < -limit) t.y -= (-limit - minY) * 0.12 * off.length();
+    camera.position.copy(t).add(off);
+    controls.update();
+  }
 }
 function applyBuiltPot(built, opts = {}) {
   const t0 = performance.now();
@@ -1477,12 +1524,12 @@ document.querySelectorAll('#mobileBar [data-sheet]').forEach(b => b.onclick = ()
     document.body.classList.remove('sheet-collapsed');
   }
   refreshUI();
-  resize();
+  resize({ fit: true });
 });
 $('foldBtn').onclick = () => {
   document.body.classList.toggle('sheet-collapsed');
   refreshUI();
-  resize();
+  resize({ fit: true });
 };
 document.querySelectorAll('#touchMode button').forEach(b => b.onclick = () => {
   ui.touchMode = b.dataset.mode;
@@ -1491,6 +1538,7 @@ document.querySelectorAll('#touchMode button').forEach(b => b.onclick = () => {
   syncOrbitTouches();
   refreshUI();
   rebuildGizmos();
+  resize({ fit: true });
 });
 
 function fmtCm(v) { return v.toFixed(1) + ' cm'; }
@@ -1828,6 +1876,7 @@ function applyLayout() {
     document.body.dataset.mobileInit = '1';
   }
   syncOrbitTouches();
+  resize({ fit: isMobileLayout() });
 }
 window.matchMedia(MOBILE_MQ).addEventListener('change', applyLayout);
 window.addEventListener('orientationchange', () => { setTimeout(applyLayout, 80); });
@@ -1967,12 +2016,13 @@ function refreshUI() {
 }
 
 // ---------- loop ----------
-function resize() {
+function resize(opts = {}) {
   syncAppSize();
   const w = view.clientWidth, h = view.clientHeight;
   if (w < 1 || h < 1) return;
   renderer.setPixelRatio(pixelRatioFor(lite));
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  if (opts.fit && pot) frameCamera();
   requestDraw();
 }
 window.addEventListener('resize', resize);
@@ -2063,6 +2113,7 @@ window.__sim = {
     if (collapsed === true) document.body.classList.add('sheet-collapsed');
     else if (collapsed === false) document.body.classList.remove('sheet-collapsed');
     refreshUI();
+    resize({ fit: true });
   },
   setCone(n) { ui.cone = n === 10 ? 10 : 6; setFireCone(ui.cone); refreshUI(); },
   recipe() { return currentRecipe(); },
@@ -2364,6 +2415,32 @@ window.__sim = {
   restoreContext() { ctxLost.restore(); },
   get contextLost() { return ctxLost.lost; },
   frame() { frameCamera(); requestDraw(); },
+  potInView(pad = 8) {
+    if (!pot) return null;
+    pot.geometry.computeBoundingBox();
+    const bb = pot.geometry.boundingBox;
+    const rect = renderer.domElement.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    const xs = [], ys = [];
+    const v = new THREE.Vector3();
+    for (const x of [bb.min.x, bb.max.x]) for (const y of [bb.min.y, bb.max.y]) for (const z of [bb.min.z, bb.max.z]) {
+      v.set(x, y, z).project(camera);
+      xs.push(rect.left + (v.x + 1) / 2 * rect.width);
+      ys.push(rect.top + (1 - v.y) / 2 * rect.height);
+    }
+    const box = { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+    const viewBox = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, w: rect.width, h: rect.height };
+    const rim = this.screenAt(0.98, 0);
+    const foot = this.screenAt(0.02, 0);
+    return {
+      view: viewBox, box,
+      rim, foot,
+      inside: box.left >= viewBox.left - pad && box.right <= viewBox.right + pad
+        && box.top >= viewBox.top - pad && box.bottom <= viewBox.bottom + pad
+        && rim.y >= viewBox.top - pad && rim.y <= viewBox.bottom + pad
+        && foot.y >= viewBox.top - pad && foot.y <= viewBox.bottom + pad,
+    };
+  },
   get composeMs() { return state.composeMs; },
   get dripStats() { return state.dripStats; },
   get engine() { return state.engine; },
