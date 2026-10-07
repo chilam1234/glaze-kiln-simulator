@@ -23,9 +23,9 @@ with sync_playwright() as pw:
     if len(info['fams']) != 6:
         print('FAIL: expected 6 family groups, got', info['fams']); raise SystemExit(1)
     page.click('button[data-glaze="rutile"]'); page.mouse.move(700, 450); page.wait_for_timeout(250)
-    page.locator('#panel').screenshot(path='/tmp/_pal_a.png')
-    page.evaluate("document.getElementById('glazes').scrollTop = 1e4"); page.wait_for_timeout(200)
-    page.locator('#panel').screenshot(path='/tmp/_pal_b.png')
+    page.locator('[data-sheet="glaze"]').screenshot(path='/tmp/_pal_a.png')
+    page.evaluate("const el = document.querySelector('.glaze-chips') || document.getElementById('glazes'); el.scrollTop = 1e4"); page.wait_for_timeout(200)
+    page.locator('[data-sheet="glaze"]').screenshot(path='/tmp/_pal_b.png')
     page.evaluate("document.getElementById('glazes').scrollTop = 0")
     from PIL import Image, ImageDraw, ImageFont
     a, bb = Image.open('/tmp/_pal_a.png'), Image.open('/tmp/_pal_b.png'); hh = min(a.height, 640)

@@ -73,7 +73,10 @@ def save_shot(page, name, full=True):
 
 def layout_info(page):
     return page.evaluate('''() => {
-      const panel = document.getElementById('panel');
+      const make = document.getElementById('makeCol');
+      const kiln = document.getElementById('kilnCol');
+      const makeCs = make ? getComputedStyle(make).display : '';
+      const panel = (makeCs && makeCs !== 'contents') ? make : document.getElementById('panel');
       const view = document.getElementById('view');
       const fire = document.getElementById('fireBtn');
       const bar = document.getElementById('mobileBar');
@@ -81,6 +84,7 @@ def layout_info(page):
       const cs = getComputedStyle(bar);
       const fr = fire.getBoundingClientRect();
       const vr = view.getBoundingClientRect();
+      const kr = kiln && getComputedStyle(kiln).display !== 'contents' ? kiln.getBoundingClientRect() : null;
       const tabs = [...document.querySelectorAll('#mobileBar button')].map(b => {
         const r = b.getBoundingClientRect();
         return { t: b.textContent.trim(), w: r.width, h: r.height };
@@ -88,10 +92,12 @@ def layout_info(page):
       return {
         mobile: document.body.classList.contains('is-mobile'),
         mq: window.__sim.mobile,
+        layout: window.__sim.layout,
         inner: { w: innerWidth, h: innerHeight },
         view: { w: vr.width, h: vr.height, x: vr.x, y: vr.y },
         panel: { w: panel.getBoundingClientRect().width, h: panel.getBoundingClientRect().height,
                  x: panel.getBoundingClientRect().x, y: panel.getBoundingClientRect().y },
+        kiln: kr ? { w: kr.width, h: kr.height, x: kr.x, y: kr.y } : null,
         fire: { w: fr.width, h: fr.height, y: fr.y, visible: fr.height > 0 && getComputedStyle(fire).display !== 'none' },
         barDisplay: cs.display,
         dprCap: pr,
@@ -199,10 +205,16 @@ def run():
         print(json.dumps(info, indent=2))
         if info['mobile'] or info['mq']:
             failed.append('desktop used mobile layout')
-        if abs(info['panel']['w'] - 270) > 8:
-            failed.append(f"desktop panel width {info['panel']['w']}")
+        if info.get('layout') != '3':
+            failed.append(f"desktop 1280 expected 3-col layout, got {info.get('layout')}")
+        if not (240 <= info['panel']['w'] <= 320):
+            failed.append(f"desktop left rail width {info['panel']['w']}")
         if info['panel']['x'] > 20:
             failed.append('desktop panel not on the left')
+        if not info.get('kiln') or info['kiln']['x'] < info['view']['x']:
+            failed.append('desktop 3-col kiln column missing on the right')
+        if info['fire']['y'] + info['fire']['h'] > info['inner']['h'] + 4:
+            failed.append('desktop Fire kiln is below the fold')
         if info['barDisplay'] != 'none':
             failed.append('desktop shows mobile bar')
         if 'AMACO' not in info['credit']:

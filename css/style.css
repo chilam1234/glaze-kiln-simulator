@@ -62,6 +62,16 @@ h1 { font: 400 48px/0.86 var(--font-display); color: var(--ink); margin: 0; lett
 .build-stamp { margin: 8px 0 0; font: 9px/1.35 var(--font-mono, ui-monospace, Menlo, Consolas, monospace); color: var(--text-muted); letter-spacing: 0.02em; }
 h2 { font: 500 11px var(--font-body); text-transform: uppercase; letter-spacing: .16em; color: var(--ink); margin: 16px 0 8px; }
 section { border-bottom: 1px solid var(--panel-border); padding-bottom: 8px; }
+.desk-fold { border: none; margin: 0; }
+.desk-fold > summary {
+  font: 500 11px var(--font-body); text-transform: uppercase; letter-spacing: .16em;
+  color: var(--ink); cursor: pointer; list-style: none; padding: 10px 0 6px;
+}
+.desk-fold > summary::-webkit-details-marker { display: none; }
+.desk-fold > summary::after { content: '▾'; float: right; opacity: .55; font-size: 10px; }
+.desk-fold:not([open]) > summary::after { content: '▸'; }
+.desk-fold > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+#qualitySlot:empty { display: none; }
 .row { display: flex; gap: 6px; margin: 4px 0; }
 .row > * { flex: 1; }
 button { font: 500 12px var(--font-btn); letter-spacing: .04em; padding: 6px 8px; border: 1px solid var(--btn-border); border-radius: 0; background: var(--btn-bg); color: var(--text); cursor: pointer; }
@@ -127,8 +137,13 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   min-width: 220px; max-width: 80%; padding: 10px 14px;
   background: var(--paper); border: 1px solid var(--ink); pointer-events: none;
 }
-#kilnProgress[hidden] { display: none !important; }
-#kilnProgressLabel { margin: 0 0 8px; font: 500 12px var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+.kiln-progress[hidden] { display: none !important; }
+.kiln-progress-label { margin: 0 0 8px; font: 500 12px var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+#kilnProgressDock {
+  position: static; transform: none; left: auto; bottom: auto; z-index: auto;
+  min-width: 0; max-width: none; margin: 6px 0 8px; padding: 8px 10px;
+  pointer-events: none;
+}
 .kiln-bar { height: 6px; background: color-mix(in srgb, var(--ink) 16%, var(--paper)); }
 .kiln-bar > i { display: block; height: 100%; width: 0; background: var(--accent); }
 .gpu-note {
@@ -220,6 +235,23 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
 
 /* Phones (portrait ~360–430px) and landscape phones (short viewport). Desktop sidebar stays as-is. */
 @media (max-width: 700px), (max-height: 520px) and (max-width: 960px) {
+  #makeCol, #kilnCol, #glazePane, #kilnDock, #qualitySlot { display: contents; }
+  #kilnProgressDock { display: none !important; }
+  details.desk-fold { display: contents; }
+  details.desk-fold > summary { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] [data-sheet="glaze"],
+  body:not(.sheet-collapsed)[data-sheet="tool"] [data-sheet="glaze"] { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet { display: none; }
+  body.sheet-collapsed [data-sheet="glaze"] { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow: hidden;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
   html, body {
     height: 100%;
     height: 100dvh;
@@ -721,6 +753,9 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     max-height: none;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet {
+    display: none;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] {
     position: absolute;
     left: 0;
     right: 0;
@@ -733,6 +768,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     background: var(--panel-bg);
     border-bottom: 1px solid var(--panel-border);
     z-index: 6;
+    flex: none;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search { margin-bottom: 4px; padding-bottom: 4px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams { margin-bottom: 4px; padding-bottom: 4px; }
@@ -740,4 +776,160 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze { min-height: 40px; padding: 4px 6px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze .nm { white-space: nowrap; text-overflow: ellipsis; }
   body.sheet-collapsed .sheet { display: none; }
+}
+
+/* Two-column: controls left (making + glaze), pot right, kiln pinned. Not phones. */
+@media (min-width: 701px) and (max-width: 1099px) and (min-height: 521px) {
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: row; }
+  #panel {
+    width: 300px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px 16px 12px;
+  }
+  #view { flex: 1; min-width: 0; min-height: 0; }
+  #makeCol {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #sheet {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #kilnCol {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #glazePane {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #kilnDock { flex: none; background: var(--panel-bg); }
+  #kilnProgress { display: none !important; }
+  .quality-seg { max-width: none; }
+  #customOpts .shape-group { display: block; }
+  .desk-fold > .shape-group > h3 { display: none; }
+  .sheet > [data-sheet="pot"],
+  .sheet > [data-sheet="tool"],
+  [data-sheet="glaze"] { display: block; }
+}
+
+/* Three-column: making | pot | glaze+kiln. */
+@media (min-width: 1100px) {
+  html, body { height: 100%; }
+  body {
+    display: grid;
+    grid-template-columns: 272px minmax(0, 1fr) 304px;
+    grid-template-rows: 100%;
+    grid-template-areas: "make view kiln";
+  }
+  #panel {
+    display: contents;
+    width: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+    overflow: visible;
+  }
+  #makeCol {
+    grid-area: make;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 18px 16px 12px;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--panel-border);
+  }
+  #view {
+    grid-area: view;
+    min-width: 0;
+    min-height: 0;
+  }
+  #kilnCol {
+    grid-area: kiln;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 18px 16px 12px;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--panel-border);
+  }
+  #sheet {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #glazePane {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #kilnDock {
+    flex: none;
+    background: var(--panel-bg);
+    border-top: 1px solid var(--panel-border);
+    padding-top: 10px;
+    margin-top: 8px;
+  }
+  #kilnProgress { display: none !important; }
+  .mast { margin-bottom: 10px; }
+  h1 { font-size: 40px; }
+  .quality-seg { max-width: none; margin-top: 8px; }
+  #customOpts .shape-group { display: block; }
+  .desk-fold > .shape-group > h3 { display: none; }
+  #glazes { padding-bottom: 8px; }
+  .actions { padding-top: 0; border-top: none; }
+}
+
+/* Desktop glaze pane: chips scroll; search, families, and Layers stay put above the kiln pin. */
+@media (min-width: 701px) and (min-height: 521px) {
+  #glazePane [data-sheet="glaze"] {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  #glazePane .glaze-search,
+  #glazePane .glaze-fams,
+  #glazePane #glazeNow,
+  #glazePane [data-sheet="glaze"] > .slider,
+  #glazePane [data-sheet="glaze"] > p.hint { flex: none; }
+  #glazePane .glaze-chips {
+    flex: 1 1 0%;
+    min-height: 64px;
+    overflow: auto;
+  }
+  #glazePane .glaze-search,
+  #glazePane .glaze-fams { position: static; }
+  /* Keep a progress slot so Fire does not shift the kiln block. */
+  #kilnProgressDock[hidden] {
+    display: block !important;
+    visibility: hidden;
+    height: 42px;
+    margin: 6px 0 8px;
+    padding: 0;
+    border: none;
+    overflow: hidden;
+  }
 }

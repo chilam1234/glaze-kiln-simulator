@@ -17,6 +17,7 @@
 </head>
 <body>
 <aside id="panel">
+  <div id="makeCol" class="desk-col">
   <header class="mast">
     <p class="kicker">Specimen log</p>
     <h1>Kiln</h1>
@@ -63,6 +64,8 @@
           <button type="button" data-group="spout">Spout</button>
           <button type="button" data-group="foot">Foot</button>
         </div>
+        <details class="desk-fold" open>
+          <summary>Pot &amp; wall</summary>
         <div class="shape-group active" data-group="pot">
           <div class="dims" id="capRow"><span>Capacity</span> <b id="capOut">—</b> ml</div>
           <div class="row node-row">
@@ -89,6 +92,9 @@
               <input type="range" id="wallBase" min="0.3" max="2.0" step="0.05"></label>
           </div>
         </div>
+        </details>
+        <details class="desk-fold" open>
+          <summary>Handle</summary>
         <div class="shape-group" data-group="handle">
           <h3>Handle</h3>
           <div class="row seg" id="handleType">
@@ -114,6 +120,9 @@
             <p class="hint" id="handleOppHint">Stays opposite the spout. Drag the green nodes to reshape the loop.</p>
           </div>
         </div>
+        </details>
+        <details class="desk-fold" open>
+          <summary>Spout</summary>
         <div class="shape-group" data-group="spout">
           <h3>Spout</h3>
           <div class="row seg" id="spoutType">
@@ -134,6 +143,9 @@
               <input type="range" id="sMouth" min="0.45" max="2.4" step="0.05"></label>
           </div>
         </div>
+        </details>
+        <details class="desk-fold" open>
+          <summary>Foot</summary>
         <div class="shape-group" data-group="foot">
           <h3>Foot <small>圈足</small></h3>
           <p class="foot-fam">Visible foot <small>明腳</small></p>
@@ -161,19 +173,9 @@
           <label class="slider" id="footFlareRow">Base flare <output id="footFlareOut"></output>
             <input type="range" id="footFlare" min="1.05" max="2.45" step="0.05"></label>
         </div>
+        </details>
         <label class="check"><input type="checkbox" id="sectionView"> Cross-section drawing</label>
       </div>
-    </section>
-    <section data-sheet="glaze">
-      <h2>Glaze</h2>
-      <label class="glaze-search"><span class="sr-only">Search glazes</span>
-        <input type="search" id="glazeSearch" placeholder="Search name or PC-12" autocomplete="off" spellcheck="false"></label>
-      <div class="row glaze-fams" id="glazeFams" role="tablist" aria-label="Glaze family"></div>
-      <div id="glazes"></div>
-      <p id="glazeNow" class="hint"></p>
-      <label class="slider">Layers <output id="thickOut"></output>
-        <input type="range" id="thick" min="1" max="5" step="1" value="2" title="How many coats the next stroke lays down."></label>
-      <p class="hint">Each stroke adds this many coats. Undo steps back one coat or shape change.</p>
     </section>
     <section data-sheet="tool">
       <h2>Tool</h2>
@@ -203,13 +205,36 @@
       <label class="check" title="A wax resist so the foot stays bare clay."><input type="checkbox" id="wax" checked> Wax the foot (keep it bare)</label>
     </section>
   </div>
-  <section class="actions">
+  </div>
+  <div id="kilnCol" class="desk-col">
+    <div id="glazePane">
+    <section data-sheet="glaze">
+      <h2>Glaze</h2>
+      <label class="glaze-search"><span class="sr-only">Search glazes</span>
+        <input type="search" id="glazeSearch" placeholder="Search name or PC-12" autocomplete="off" spellcheck="false"></label>
+      <div class="row glaze-fams" id="glazeFams" role="tablist" aria-label="Glaze family"></div>
+      <details class="desk-fold glaze-chips" open>
+        <summary>Glazes</summary>
+        <div id="glazes"></div>
+      </details>
+      <p id="glazeNow" class="hint"></p>
+      <label class="slider">Layers <output id="thickOut"></output>
+        <input type="range" id="thick" min="1" max="5" step="1" value="2" title="How many coats the next stroke lays down."></label>
+      <p class="hint">Each stroke adds this many coats. Undo steps back one coat or shape change.</p>
+    </section>
+    </div>
+    <div id="kilnDock">
+  <section class="actions" id="kilnBlock">
     <div class="cone-fire">
       <div class="row seg" id="cone" title="Orton cones at 60°C/h. Cone 6 is the usual stoneware fire. Cone 10 is hotter and runnier.">
         <button type="button" data-cone="6" title="About 1222°C. The usual stoneware fire.">Cone 6 <small>~1222°C</small></button>
         <button type="button" data-cone="10" title="About 1285°C. Hotter, runnier, and some glazes change colour.">Cone 10 <small>~1285°C</small></button>
       </div>
       <button id="fireBtn" class="fire" title="Melt the glaze. Painting locks until you Unfire.">Fire kiln</button>
+    </div>
+    <div class="kiln-progress" id="kilnProgressDock" hidden>
+      <p class="kiln-progress-label" id="kilnProgressDockLabel">Firing…</p>
+      <div class="kiln-bar"><i id="kilnBarDock"></i></div>
     </div>
     <div class="row aux-row">
       <button id="unfireBtn" title="Unlock painting. The fired surface goes back to raw glaze.">Unfire</button>
@@ -233,12 +258,15 @@
       <button type="button" id="signBtn" title="Email yourself a sign-in link.">Sign in</button>
     </div>
   </section>
+  <div id="qualitySlot"></div>
   <p class="credit">Paint glaze on a pot, then fire it. Colors are approximated from AMACO product photos. Not affiliated with AMACO. <a href="https://chilam1234.github.io/glaze-kiln-simulator/privacy.html">Privacy policy</a></p>
+    </div>
+  </div>
 </aside>
 <main id="view">
   <p class="view-folio">The pot is the specimen</p>
-  <div id="kilnProgress" hidden>
-    <p id="kilnProgressLabel">Firing…</p>
+  <div id="kilnProgress" class="kiln-progress" hidden>
+    <p id="kilnProgressLabel" class="kiln-progress-label">Firing…</p>
     <div class="kiln-bar"><i id="kilnBar"></i></div>
   </div>
   <div id="dimHud" hidden></div>
