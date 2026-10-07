@@ -827,11 +827,20 @@ body.desk-2 #kilnCol {
 }
 body.desk-2 #glazePane {
   flex: 1 1 0%;
-  min-height: 0;
+  min-height: 140px;
   overflow-x: hidden;
   overflow-y: auto;
 }
+body.desk-2 #makeCol {
+  flex: 0 1 auto;
+  max-height: 42%;
+}
+body.desk-2 #kilnCol {
+  flex: 1 1 0%;
+}
 body.desk-2 #kilnDock { flex: none; background: var(--panel-bg); }
+body.desk-2 .record-fold > .cloud > h2,
+body.desk-3 .record-fold > .cloud > h2 { display: none; }
 body.desk-2 #kilnProgress { display: none !important; }
 body.desk-2 .quality-seg { max-width: none; }
 body.desk-2 #customOpts .shape-group { display: block; }

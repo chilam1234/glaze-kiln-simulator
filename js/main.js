@@ -2005,6 +2005,8 @@ function applyLayout() {
   document.body.dataset.shapeGroup = ui.shapeGroup;
   document.body.dataset.layout = mode;
   syncQualitySlot();
+  const rec = document.querySelector('.record-fold');
+  if (rec) rec.open = mode !== '2';
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
