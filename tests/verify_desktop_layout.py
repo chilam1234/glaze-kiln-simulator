@@ -113,9 +113,15 @@ def run_size(page, label, expect, shot):
         check(info['tool'] and info['tool']['h'] > 20, f'{label}: Tool section visible')
         check(info['glaze'] and info['glaze']['h'] > 48, f'{label}: Glaze section visible ({info["glaze"]})')
         check(in_viewport(info['layers'], H, W), f'{label}: Layers slider is on-screen ({info["layers"]})')
+        if info['glaze'] and info['layers']:
+            check(info['layers']['y'] >= info['glaze']['y'] - 2 and info['layers']['b'] <= info['glaze']['b'] + 6,
+                  f'{label}: Layers sits inside the glaze pane (layers={info["layers"]} glaze={info["glaze"]})')
         vis_fams = [f for f in info['fams'] if f['vis']]
         check(len(vis_fams) >= 6 and all(f['t'] for f in vis_fams),
               f'{label}: glaze family buttons show labels ({vis_fams})')
+        if expect == '2':
+            check(all(f['h'] >= 28 for f in vis_fams),
+                  f'{label}: 2-col family buttons are not clipped ({vis_fams})')
         vis_folds = [f for f in info['folds'] if f['vis'] and f['h'] > 8]
         check(any(f['t'] == 'Glazes' for f in vis_folds), f'{label}: glaze chip list is collapsible ({[f["t"] for f in vis_folds]})')
         page.evaluate('__sim.setShape("custom")')

@@ -808,12 +808,13 @@ body.desk-2 #view {
 body.desk-2 #makeCol {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0%;
+  flex: 0 1 auto;
+  max-height: 44%;
   min-height: 0;
   overflow: hidden;
 }
 body.desk-2 #sheet {
-  flex: 1 1 0%;
+  flex: 0 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -829,25 +830,28 @@ body.desk-2 #glazePane {
   display: flex;
   flex-direction: column;
   flex: 1 1 0%;
-  min-height: 140px;
+  min-height: 168px;
   overflow: hidden;
-}
-body.desk-2 #makeCol {
-  flex: 0 1 auto;
-  max-height: 42%;
-}
-body.desk-2 #kilnCol {
-  flex: 1 1 0%;
 }
 body.desk-2 #kilnDock { flex: none; background: var(--panel-bg); }
 body.desk-2 .record-fold > .cloud > h2,
 body.desk-3 .record-fold > .cloud > h2 { display: none; }
 body.desk-2 #kilnProgress { display: none !important; }
+body.desk-2 h1 { font-size: 36px; }
+body.desk-2 .mast { margin-bottom: 8px; }
+body.desk-2 .folio { margin-top: 6px; }
 body.desk-2 .quality-seg { max-width: none; margin-top: 8px; }
-body.desk-2 .glaze-fams button { min-height: 32px; padding: 4px 2px; }
-body.desk-2 #glazeNow { min-height: 0; }
+body.desk-2 .glaze-fams {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+body.desk-2 .glaze-fams button { min-height: 32px; padding: 4px 2px; flex: none; }
+body.desk-2 #glazeNow { min-height: 0; margin: 4px 0 0; }
+body.desk-2 #glazePane h2 { margin: 4px 0 6px; }
 body.desk-2 #glazePane section[data-sheet="glaze"] > p.hint { display: none; }
-body.desk-2 #status { min-height: 1.6em; }
+body.desk-2 #status { min-height: 1.4em; }
+body.desk-2 .credit { margin-top: 6px; font-size: 9.5px; }
 body.desk-2 #customOpts .shape-group { display: block; }
 body.desk-2 .desk-fold > .shape-group > h3 { display: none; }
 body.desk-2 .sheet > [data-sheet="pot"],
@@ -923,6 +927,10 @@ body.desk-3 #kilnProgress { display: none !important; }
 body.desk-3 .mast { margin-bottom: 10px; }
 body.desk-3 h1 { font-size: 40px; }
 body.desk-3 .quality-seg { max-width: none; margin-top: 8px; }
+body.desk-3 #glazePane h2 { margin: 0 0 6px; }
+body.desk-3 #glazeNow { min-height: 0; margin: 4px 0 2px; }
+body.desk-3 #glazePane section[data-sheet="glaze"] > p.hint { display: none; }
+body.desk-3 #status { min-height: 1.6em; }
 body.desk-3 #customOpts .shape-group { display: block; }
 body.desk-3 .desk-fold > .shape-group > h3 { display: none; }
 body.desk-3 #glazes { padding-bottom: 8px; }
@@ -954,7 +962,7 @@ body.desk-3 #glazePane .glaze-chips:not([open]) { flex: none; }
 body.desk-2 #glazePane .glaze-chips[open],
 body.desk-3 #glazePane .glaze-chips[open] {
   flex: 1 1 0%;
-  min-height: 0;
+  min-height: 88px;
   overflow: auto;
 }
 body.desk-2 #glazePane .glaze-search,
