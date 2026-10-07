@@ -826,10 +826,11 @@ body.desk-2 #kilnCol {
   overflow: hidden;
 }
 body.desk-2 #glazePane {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 0%;
   min-height: 140px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
 }
 body.desk-2 #makeCol {
   flex: 0 1 auto;
@@ -842,7 +843,11 @@ body.desk-2 #kilnDock { flex: none; background: var(--panel-bg); }
 body.desk-2 .record-fold > .cloud > h2,
 body.desk-3 .record-fold > .cloud > h2 { display: none; }
 body.desk-2 #kilnProgress { display: none !important; }
-body.desk-2 .quality-seg { max-width: none; }
+body.desk-2 .quality-seg { max-width: none; margin-top: 8px; }
+body.desk-2 .glaze-fams button { min-height: 32px; padding: 4px 2px; }
+body.desk-2 #glazeNow { min-height: 0; }
+body.desk-2 #glazePane section[data-sheet="glaze"] > p.hint { display: none; }
+body.desk-2 #status { min-height: 1.6em; }
 body.desk-2 #customOpts .shape-group { display: block; }
 body.desk-2 .desk-fold > .shape-group > h3 { display: none; }
 body.desk-2 .sheet > [data-sheet="pot"],
@@ -901,10 +906,11 @@ body.desk-3 #sheet {
   overflow-y: auto;
 }
 body.desk-3 #glazePane {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 0%;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
 }
 body.desk-3 #kilnDock {
   flex: none;
@@ -927,8 +933,9 @@ body.desk-2 #glazePane section[data-sheet="glaze"],
 body.desk-3 #glazePane section[data-sheet="glaze"] {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1 1 0%;
   min-height: 0;
+  overflow: hidden;
   border-bottom: none;
   padding-bottom: 0;
 }
@@ -942,10 +949,12 @@ body.desk-2 #glazePane section[data-sheet="glaze"] > .slider,
 body.desk-3 #glazePane section[data-sheet="glaze"] > .slider,
 body.desk-2 #glazePane section[data-sheet="glaze"] > p.hint,
 body.desk-3 #glazePane section[data-sheet="glaze"] > p.hint { flex: none; }
-body.desk-2 #glazePane .glaze-chips,
-body.desk-3 #glazePane .glaze-chips {
+body.desk-2 #glazePane .glaze-chips:not([open]),
+body.desk-3 #glazePane .glaze-chips:not([open]) { flex: none; }
+body.desk-2 #glazePane .glaze-chips[open],
+body.desk-3 #glazePane .glaze-chips[open] {
   flex: 1 1 0%;
-  min-height: 64px;
+  min-height: 0;
   overflow: auto;
 }
 body.desk-2 #glazePane .glaze-search,

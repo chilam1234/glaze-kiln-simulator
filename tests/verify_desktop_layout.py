@@ -73,6 +73,11 @@ def layout(page):
         status: box(q('status')),
         quality: box(q('quality')),
         glaze: box(document.querySelector('section[data-sheet="glaze"]')),
+        layers: box(document.getElementById('thick')),
+        fams: [...document.querySelectorAll('#glazeFams button')].map(b => ({
+          t: b.textContent.trim(), h: b.getBoundingClientRect().height,
+          vis: getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 8
+        })),
         pot: box(document.querySelector('section[data-sheet="pot"]')),
         tool: box(document.querySelector('section[data-sheet="tool"]')),
         bar: box(q('mobileBar')),
@@ -107,6 +112,10 @@ def run_size(page, label, expect, shot):
         check(info['pot'] and info['pot']['h'] > 20, f'{label}: Shape/Pot section visible')
         check(info['tool'] and info['tool']['h'] > 20, f'{label}: Tool section visible')
         check(info['glaze'] and info['glaze']['h'] > 48, f'{label}: Glaze section visible ({info["glaze"]})')
+        check(in_viewport(info['layers'], H, W), f'{label}: Layers slider is on-screen ({info["layers"]})')
+        vis_fams = [f for f in info['fams'] if f['vis']]
+        check(len(vis_fams) >= 6 and all(f['t'] for f in vis_fams),
+              f'{label}: glaze family buttons show labels ({vis_fams})')
         vis_folds = [f for f in info['folds'] if f['vis'] and f['h'] > 8]
         check(any(f['t'] == 'Glazes' for f in vis_folds), f'{label}: glaze chip list is collapsible ({[f["t"] for f in vis_folds]})')
         page.evaluate('__sim.setShape("custom")')
@@ -127,12 +136,15 @@ def run_size(page, label, expect, shot):
         check(info['view']['x'] >= info['make']['r'] - 2, f'{label}: pot is between the columns')
         check(info['kilnCol']['x'] >= info['view']['r'] - 2, f'{label}: glaze/kiln column on the right')
         check(info['quality'] and info['quality']['x'] > info['view']['x'], f'{label}: Quality sits in the right column')
+        check(info['quality']['y'] > info['fire']['b'] - 4, f'{label}: Quality sits below Fire')
         check(info['view']['w'] > 500, f'{label}: canvas is the wide center ({info["view"]["w"]})')
     if expect == '2':
         check(info['make']['x'] < 24, f'{label}: controls on the left')
         check(info['view']['x'] >= info['make']['r'] - 8, f'{label}: pot on the right of controls')
         check(info['view']['y'] < 40, f'{label}: pot is not stacked under the sidebar')
         check(info['bar']['display'] == 'none', f'{label}: 2-col hides the phone tab bar')
+        check(info['quality'] and info['quality']['y'] > info['fire']['b'] - 4,
+              f'{label}: 2-col Quality sits with the pinned kiln, not the mast')
     if expect == 'phone':
         check(info['mobile'] is True, f'{label}: is mobile')
         check(info['bar'] and info['bar']['display'] != 'none', f'{label}: phone tab bar shown')
@@ -158,7 +170,7 @@ with sync_playwright() as pw:
         return p
 
     p = page_at(1280, 800)
-    run_size(p, '1280x800', '3', 'layout-1280x800.png')
+    run_size(p, '1280x800', '3', 'layout_desktop_1280x800.png')
     view_before = p.evaluate('() => { const r = document.getElementById("view").getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; }')
     p.evaluate('__sim.setSeed(20261007); document.getElementById("fireBtn").click()')
     p.wait_for_function('''() => {
@@ -171,14 +183,14 @@ with sync_playwright() as pw:
           f'1280 mid-fire: canvas size unchanged ({view_before} -> {mid})')
     check(abs(mid['x'] - view_before['x']) < 2 and abs(mid['y'] - view_before['y']) < 2,
           f'1280 mid-fire: canvas position unchanged')
-    save(p, 'layout-1280x800-firing.png')
+    save(p, 'layout_desktop_1280x800_firing.png')
     p.wait_for_function('__sim.state === "fired"', timeout=240000)
     p.close()
 
     for w, h, name, expect in (
-        (1440, 900, 'layout-1440x900.png', '3'),
-        (1920, 1080, 'layout-1920x1080.png', '3'),
-        (900, 700, 'layout-900x700.png', '2'),
+        (1440, 900, 'layout_desktop_1440x900.png', '3'),
+        (1920, 1080, 'layout_desktop_1920x1080.png', '3'),
+        (900, 700, 'layout_desktop_900x700.png', '2'),
     ):
         pg = page_at(w, h)
         run_size(pg, f'{w}x{h}', expect, name)
@@ -187,7 +199,7 @@ with sync_playwright() as pw:
     phone = browser.new_page(viewport={'width': 390, 'height': 844})
     phone.on('pageerror', lambda e: errors.append(str(e)))
     phone.goto(url, timeout=120000)
-    run_size(phone, '390x844', 'phone', 'layout-390x844.png')
+    run_size(phone, '390x844', 'phone', 'layout_phone_390x844.png')
     phone.close()
     browser.close()
 

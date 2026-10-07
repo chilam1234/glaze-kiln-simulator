@@ -1991,9 +1991,10 @@ function deskMode() {
 }
 function syncQualitySlot() {
   const q = $('quality'), slot = $('qualitySlot'), mast = document.querySelector('#makeCol .mast, .mast');
+  const mode = deskMode();
   if (!q) return;
-  if (deskMode() === '3' && slot && q.parentElement !== slot) slot.appendChild(q);
-  else if (deskMode() !== '3' && mast && q.parentElement !== mast) mast.appendChild(q);
+  if ((mode === '2' || mode === '3') && slot && q.parentElement !== slot) slot.appendChild(q);
+  else if (mode === 'phone' && mast && q.parentElement !== mast) mast.appendChild(q);
 }
 function applyLayout() {
   const mobile = isMobileLayout();
@@ -2007,6 +2008,8 @@ function applyLayout() {
   syncQualitySlot();
   const rec = document.querySelector('.record-fold');
   if (rec) rec.open = mode !== '2';
+  const chips = document.querySelector('.glaze-chips');
+  if (chips) chips.open = mode !== '2';
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
