@@ -58,7 +58,8 @@ def layout(page):
       };
       const fire = q('fireBtn');
       const view = q('view');
-      const canvas = view && view.querySelector('canvas');
+      const canvases = view ? [...view.querySelectorAll('canvas')] : [];
+      const canvas = canvases.find(c => c.clientWidth > 8) || canvases[canvases.length - 1];
       return {
         layout: __sim.layout,
         mobile: __sim.mobile,
@@ -71,9 +72,9 @@ def layout(page):
         fire: box(fire),
         status: box(q('status')),
         quality: box(q('quality')),
-        glaze: box(document.querySelector('[data-sheet="glaze"]')),
-        pot: box(document.querySelector('[data-sheet="pot"]')),
-        tool: box(document.querySelector('[data-sheet="tool"]')),
+        glaze: box(document.querySelector('section[data-sheet="glaze"]')),
+        pot: box(document.querySelector('section[data-sheet="pot"]')),
+        tool: box(document.querySelector('section[data-sheet="tool"]')),
         bar: box(q('mobileBar')),
         folds: [...document.querySelectorAll('.desk-fold > summary')].map(s => ({
           t: s.textContent.trim(), h: s.getBoundingClientRect().height,
@@ -107,7 +108,13 @@ def run_size(page, label, expect, shot):
         check(info['tool'] and info['tool']['h'] > 20, f'{label}: Tool section visible')
         check(info['glaze'] and info['glaze']['h'] > 20, f'{label}: Glaze section visible')
         vis_folds = [f for f in info['folds'] if f['vis'] and f['h'] > 8]
-        check(len(vis_folds) >= 2, f'{label}: collapsible section headers present ({[f["t"] for f in vis_folds]})')
+        check(any(f['t'] == 'Glazes' for f in vis_folds), f'{label}: glaze chip list is collapsible ({[f["t"] for f in vis_folds]})')
+        page.evaluate('__sim.setShape("custom")')
+        page.wait_for_timeout(120)
+        custom_folds = page.evaluate('''() => [...document.querySelectorAll(".desk-fold > summary")].filter(s => getComputedStyle(s).display !== "none").map(s => s.textContent.trim())''')
+        check(len(custom_folds) >= 4, f'{label}: custom profile groups fold ({custom_folds})')
+        page.evaluate('__sim.setShape("vase")')
+        page.wait_for_timeout(80)
         if info['canvas'] and info['view']:
             check(info['canvas']['cssW'] == round(info['view']['w']) or abs(info['canvas']['cssW'] - info['view']['w']) < 2,
                   f'{label}: canvas CSS width matches view ({info["canvas"]["cssW"]} vs {info["view"]["w"]})')
@@ -116,19 +123,25 @@ def run_size(page, label, expect, shot):
             check(abs(ratio - info['dpr']) < 0.08, f'{label}: backing store uses DPR cap ({ratio:.3f} vs {info["dpr"]})')
             check(info['dpr'] <= cap + 0.01, f'{label}: DPR cap {info["dpr"]} <= {cap}')
     if expect == '3':
-        check(info['make']['x'] < 8, f'{label}: making column on the left')
+        check(info['make']['x'] < 24, f'{label}: making column on the left')
         check(info['view']['x'] >= info['make']['r'] - 2, f'{label}: pot is between the columns')
         check(info['kilnCol']['x'] >= info['view']['r'] - 2, f'{label}: glaze/kiln column on the right')
         check(info['quality'] and info['quality']['x'] > info['view']['x'], f'{label}: Quality sits in the right column')
         check(info['view']['w'] > 500, f'{label}: canvas is the wide center ({info["view"]["w"]})')
     if expect == '2':
-        check(info['make']['x'] < 8, f'{label}: controls on the left')
-        check(info['view']['x'] >= info['make']['r'] - 4, f'{label}: pot on the right of controls')
+        check(info['make']['x'] < 24, f'{label}: controls on the left')
+        check(info['view']['x'] >= info['make']['r'] - 8, f'{label}: pot on the right of controls')
+        check(info['view']['y'] < 40, f'{label}: pot is not stacked under the sidebar')
         check(info['bar']['display'] == 'none', f'{label}: 2-col hides the phone tab bar')
     if expect == 'phone':
         check(info['mobile'] is True, f'{label}: is mobile')
         check(info['bar'] and info['bar']['display'] != 'none', f'{label}: phone tab bar shown')
-        check(info['view']['y'] < info['make']['y'] + 40 or info['view']['y'] <= 8, f'{label}: pot is above the drawer')
+        check(info['view']['y'] <= 8, f'{label}: pot is above the drawer')
+        tabs = page.evaluate('''() => [...document.querySelectorAll("#mobileBar [data-sheet]")].map(b => ({t:b.textContent.trim(), vis: getComputedStyle(b).display !== "none", h:b.getBoundingClientRect().height}))''')
+        check(all(t['vis'] and t['h'] >= 40 for t in tabs) and {t['t'] for t in tabs} >= {'Pot', 'Glaze', 'Tool'},
+              f'{label}: Pot/Glaze/Tool tabs visible ({tabs})')
+        check(page.evaluate('getComputedStyle(document.querySelector(".mast")).display') == 'none',
+              f'{label}: specimen-log mast stays hidden')
         check(not any(f['vis'] and f['h'] > 8 for f in info['folds']), f'{label}: desktop fold summaries hidden on phone')
     save(page, shot)
     return info

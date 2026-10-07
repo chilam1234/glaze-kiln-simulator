@@ -239,11 +239,11 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #kilnProgressDock { display: none !important; }
   details.desk-fold { display: contents; }
   details.desk-fold > summary { display: none; }
-  body:not(.sheet-collapsed)[data-sheet="pot"] [data-sheet="glaze"],
-  body:not(.sheet-collapsed)[data-sheet="tool"] [data-sheet="glaze"] { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] section[data-sheet="glaze"],
+  body:not(.sheet-collapsed)[data-sheet="tool"] section[data-sheet="glaze"] { display: none; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet { display: none; }
-  body.sheet-collapsed [data-sheet="glaze"] { display: none; }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] {
+  body.sheet-collapsed section[data-sheet="glaze"] { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] section[data-sheet="glaze"] {
     display: flex;
     flex-direction: column;
     flex: 1 1 0%;
@@ -286,7 +286,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     border-right: none;
     border-top: 1px solid var(--panel-border);
   }
-  #panel > .mast, #panel > h1, .view-folio { display: none; }
+  .mast, #panel > h1, .view-folio { display: none; }
   .desktop-only { display: none; }
   .mobile-only { display: block; }
   .mobile-bar {
@@ -755,7 +755,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet {
     display: none;
   }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] {
+  body:not(.sheet-collapsed)[data-sheet="glaze"] section[data-sheet="glaze"] {
     position: absolute;
     left: 0;
     right: 0;
@@ -779,157 +779,177 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
 }
 
 /* Two-column: controls left (making + glaze), pot right, kiln pinned. Not phones. */
-@media (min-width: 701px) and (max-width: 1099px) and (min-height: 521px) {
-  html, body { height: 100%; }
-  body { display: flex; flex-direction: row; }
-  #panel {
-    width: 300px;
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    padding: 16px 16px 12px;
-  }
-  #view { flex: 1; min-width: 0; min-height: 0; }
-  #makeCol {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0%;
-    min-height: 0;
-    overflow: hidden;
-  }
-  #sheet {
-    flex: 1 1 0%;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-  #kilnCol {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0%;
-    min-height: 0;
-    overflow: hidden;
-  }
-  #glazePane {
-    flex: 1 1 0%;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-  #kilnDock { flex: none; background: var(--panel-bg); }
-  #kilnProgress { display: none !important; }
-  .quality-seg { max-width: none; }
-  #customOpts .shape-group { display: block; }
-  .desk-fold > .shape-group > h3 { display: none; }
-  .sheet > [data-sheet="pot"],
-  .sheet > [data-sheet="tool"],
-  [data-sheet="glaze"] { display: block; }
+body.desk-2 {
+  display: flex !important;
+  flex-direction: row !important;
+  height: 100% !important;
+  max-height: 100%;
+  overflow: hidden;
 }
+body.desk-2 #panel {
+  width: 300px;
+  flex: none;
+  align-self: stretch;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 16px 12px;
+}
+body.desk-2 #view {
+  flex: 1 1 0%;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+}
+body.desk-2 #makeCol {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+}
+body.desk-2 #sheet {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.desk-2 #kilnCol {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+}
+body.desk-2 #glazePane {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.desk-2 #kilnDock { flex: none; background: var(--panel-bg); }
+body.desk-2 #kilnProgress { display: none !important; }
+body.desk-2 .quality-seg { max-width: none; }
+body.desk-2 #customOpts .shape-group { display: block; }
+body.desk-2 .desk-fold > .shape-group > h3 { display: none; }
+body.desk-2 .sheet > [data-sheet="pot"],
+body.desk-2 .sheet > [data-sheet="tool"],
+body.desk-2 section[data-sheet="glaze"] { display: block; }
 
 /* Three-column: making | pot | glaze+kiln. */
-@media (min-width: 1100px) {
-  html, body { height: 100%; }
-  body {
-    display: grid;
-    grid-template-columns: 272px minmax(0, 1fr) 304px;
-    grid-template-rows: 100%;
-    grid-template-areas: "make view kiln";
-  }
-  #panel {
-    display: contents;
-    width: auto;
-    padding: 0;
-    border: none;
-    background: transparent;
-    overflow: visible;
-  }
-  #makeCol {
-    grid-area: make;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-    padding: 18px 16px 12px;
-    background: var(--panel-bg);
-    border-right: 1px solid var(--panel-border);
-  }
-  #view {
-    grid-area: view;
-    min-width: 0;
-    min-height: 0;
-  }
-  #kilnCol {
-    grid-area: kiln;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-    padding: 18px 16px 12px;
-    background: var(--panel-bg);
-    border-left: 1px solid var(--panel-border);
-  }
-  #sheet {
-    flex: 1 1 0%;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-  #glazePane {
-    flex: 1 1 0%;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-  #kilnDock {
-    flex: none;
-    background: var(--panel-bg);
-    border-top: 1px solid var(--panel-border);
-    padding-top: 10px;
-    margin-top: 8px;
-  }
-  #kilnProgress { display: none !important; }
-  .mast { margin-bottom: 10px; }
-  h1 { font-size: 40px; }
-  .quality-seg { max-width: none; margin-top: 8px; }
-  #customOpts .shape-group { display: block; }
-  .desk-fold > .shape-group > h3 { display: none; }
-  #glazes { padding-bottom: 8px; }
-  .actions { padding-top: 0; border-top: none; }
+body.desk-3 {
+  display: grid !important;
+  grid-template-columns: 272px minmax(0, 1fr) 304px;
+  grid-template-rows: 100%;
+  grid-template-areas: "make view kiln";
+  height: 100% !important;
+  max-height: 100%;
+  overflow: hidden;
 }
+body.desk-3 #panel {
+  display: contents;
+  width: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+body.desk-3 #makeCol {
+  grid-area: make;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 16px 12px;
+  background: var(--panel-bg);
+  border-right: 1px solid var(--panel-border);
+}
+body.desk-3 #view {
+  grid-area: view;
+  min-width: 0;
+  min-height: 0;
+}
+body.desk-3 #kilnCol {
+  grid-area: kiln;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 16px 12px;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--panel-border);
+}
+body.desk-3 #sheet {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.desk-3 #glazePane {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.desk-3 #kilnDock {
+  flex: none;
+  background: var(--panel-bg);
+  border-top: 1px solid var(--panel-border);
+  padding-top: 10px;
+  margin-top: 8px;
+}
+body.desk-3 #kilnProgress { display: none !important; }
+body.desk-3 .mast { margin-bottom: 10px; }
+body.desk-3 h1 { font-size: 40px; }
+body.desk-3 .quality-seg { max-width: none; margin-top: 8px; }
+body.desk-3 #customOpts .shape-group { display: block; }
+body.desk-3 .desk-fold > .shape-group > h3 { display: none; }
+body.desk-3 #glazes { padding-bottom: 8px; }
+body.desk-3 .actions { padding-top: 0; border-top: none; }
 
 /* Desktop glaze pane: chips scroll; search, families, and Layers stay put above the kiln pin. */
-@media (min-width: 701px) and (min-height: 521px) {
-  #glazePane [data-sheet="glaze"] {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    border-bottom: none;
-    padding-bottom: 0;
-  }
-  #glazePane .glaze-search,
-  #glazePane .glaze-fams,
-  #glazePane #glazeNow,
-  #glazePane [data-sheet="glaze"] > .slider,
-  #glazePane [data-sheet="glaze"] > p.hint { flex: none; }
-  #glazePane .glaze-chips {
-    flex: 1 1 0%;
-    min-height: 64px;
-    overflow: auto;
-  }
-  #glazePane .glaze-search,
-  #glazePane .glaze-fams { position: static; }
-  /* Keep a progress slot so Fire does not shift the kiln block. */
-  #kilnProgressDock[hidden] {
-    display: block !important;
-    visibility: hidden;
-    height: 42px;
-    margin: 6px 0 8px;
-    padding: 0;
-    border: none;
-    overflow: hidden;
-  }
+body.desk-2 #glazePane section[data-sheet="glaze"],
+body.desk-3 #glazePane section[data-sheet="glaze"] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+body.desk-2 #glazePane .glaze-search,
+body.desk-3 #glazePane .glaze-search,
+body.desk-2 #glazePane .glaze-fams,
+body.desk-3 #glazePane .glaze-fams,
+body.desk-2 #glazePane #glazeNow,
+body.desk-3 #glazePane #glazeNow,
+body.desk-2 #glazePane section[data-sheet="glaze"] > .slider,
+body.desk-3 #glazePane section[data-sheet="glaze"] > .slider,
+body.desk-2 #glazePane section[data-sheet="glaze"] > p.hint,
+body.desk-3 #glazePane section[data-sheet="glaze"] > p.hint { flex: none; }
+body.desk-2 #glazePane .glaze-chips,
+body.desk-3 #glazePane .glaze-chips {
+  flex: 1 1 0%;
+  min-height: 64px;
+  overflow: auto;
+}
+body.desk-2 #glazePane .glaze-search,
+body.desk-3 #glazePane .glaze-search,
+body.desk-2 #glazePane .glaze-fams,
+body.desk-3 #glazePane .glaze-fams { position: static; }
+body.desk-2 #kilnProgressDock[hidden],
+body.desk-3 #kilnProgressDock[hidden] {
+  display: block !important;
+  visibility: hidden;
+  height: 42px;
+  margin: 6px 0 8px;
+  padding: 0;
+  border: none;
+  overflow: hidden;
 }
