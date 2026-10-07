@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=42797e9-20261007-1655';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=42797e9-20261007-1655';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=42797e9-20261007-1655';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=42797e9-20261007-1655';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=42797e9-20261007-1655';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=42797e9-20261007-1655';
-import { BUILD, BUILD_TIME } from './build-info.js?v=42797e9-20261007-1655';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=f58add7-20261007-1709';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=f58add7-20261007-1709';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=f58add7-20261007-1709';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=f58add7-20261007-1709';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=f58add7-20261007-1709';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=f58add7-20261007-1709';
+import { BUILD, BUILD_TIME } from './build-info.js?v=f58add7-20261007-1709';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -2007,7 +2007,7 @@ function applyLayout() {
   document.body.dataset.layout = mode;
   syncQualitySlot();
   const rec = document.querySelector('.record-fold');
-  if (rec) rec.open = mode === '3' && window.innerHeight >= 880;
+  if (rec) rec.open = mode === 'phone' || (mode === '3' && window.innerHeight >= 880);
   const chips = document.querySelector('.glaze-chips');
   if (chips) chips.open = mode !== '2';
   if (!mobile) document.body.classList.remove('sheet-collapsed');
