@@ -809,7 +809,7 @@ body.desk-2 #makeCol {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
-  max-height: 44%;
+  max-height: 34%;
   min-height: 0;
   overflow: hidden;
 }
@@ -830,7 +830,7 @@ body.desk-2 #glazePane {
   display: flex;
   flex-direction: column;
   flex: 1 1 0%;
-  min-height: 168px;
+  min-height: 200px;
   overflow: hidden;
 }
 body.desk-2 #kilnDock { flex: none; background: var(--panel-bg); }
@@ -846,12 +846,14 @@ body.desk-2 .glaze-fams {
   grid-template-columns: 1fr 1fr 1fr;
   gap: 4px;
 }
-body.desk-2 .glaze-fams button { min-height: 32px; padding: 4px 2px; flex: none; }
-body.desk-2 #glazeNow { min-height: 0; margin: 4px 0 0; }
+body.desk-2 .glaze-search input { min-height: 28px; padding: 5px 8px; }
+body.desk-2 .glaze-fams button { min-height: 28px; padding: 4px 2px; flex: none; }
+body.desk-2 #glazeNow { display: none; }
 body.desk-2 #glazePane h2 { margin: 4px 0 6px; }
 body.desk-2 #glazePane section[data-sheet="glaze"] > p.hint { display: none; }
-body.desk-2 #status { min-height: 1.4em; }
-body.desk-2 .credit { margin-top: 6px; font-size: 9.5px; }
+body.desk-2 .glaze-chips > summary { padding: 6px 0; }
+body.desk-2 #status { min-height: 1.3em; }
+body.desk-2 .credit { display: none; }
 body.desk-2 #customOpts .shape-group { display: block; }
 body.desk-2 .desk-fold > .shape-group > h3 { display: none; }
 body.desk-2 .sheet > [data-sheet="pot"],
@@ -962,7 +964,7 @@ body.desk-3 #glazePane .glaze-chips:not([open]) { flex: none; }
 body.desk-2 #glazePane .glaze-chips[open],
 body.desk-3 #glazePane .glaze-chips[open] {
   flex: 1 1 0%;
-  min-height: 88px;
+  min-height: 0;
   overflow: auto;
 }
 body.desk-2 #glazePane .glaze-search,

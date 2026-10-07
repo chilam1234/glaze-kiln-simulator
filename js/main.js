@@ -2007,7 +2007,7 @@ function applyLayout() {
   document.body.dataset.layout = mode;
   syncQualitySlot();
   const rec = document.querySelector('.record-fold');
-  if (rec) rec.open = mode !== '2';
+  if (rec) rec.open = mode === '3' && window.innerHeight >= 880;
   const chips = document.querySelector('.glaze-chips');
   if (chips) chips.open = mode !== '2';
   if (!mobile) document.body.classList.remove('sheet-collapsed');
@@ -2021,6 +2021,7 @@ function applyLayout() {
 }
 window.matchMedia(MOBILE_MQ).addEventListener('change', applyLayout);
 window.matchMedia(DESK3_MQ).addEventListener('change', applyLayout);
+window.matchMedia('(min-height: 880px)').addEventListener('change', applyLayout);
 window.addEventListener('orientationchange', () => { setTimeout(applyLayout, 80); });
 
 function brushWord(v) {
