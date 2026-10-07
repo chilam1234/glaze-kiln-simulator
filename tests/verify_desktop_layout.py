@@ -106,7 +106,7 @@ def run_size(page, label, expect, shot):
         check(info['bar'] and info['bar']['display'] == 'none', f'{label}: mobile bar hidden')
         check(info['pot'] and info['pot']['h'] > 20, f'{label}: Shape/Pot section visible')
         check(info['tool'] and info['tool']['h'] > 20, f'{label}: Tool section visible')
-        check(info['glaze'] and info['glaze']['h'] > 20, f'{label}: Glaze section visible')
+        check(info['glaze'] and info['glaze']['h'] > 48, f'{label}: Glaze section visible ({info["glaze"]})')
         vis_folds = [f for f in info['folds'] if f['vis'] and f['h'] > 8]
         check(any(f['t'] == 'Glazes' for f in vis_folds), f'{label}: glaze chip list is collapsible ({[f["t"] for f in vis_folds]})')
         page.evaluate('__sim.setShape("custom")')
