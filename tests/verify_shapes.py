@@ -47,7 +47,7 @@ with sync_playwright() as pw:
         page.locator('#view').screenshot(path=os.path.join(OUT, f'shape-{shape}.png'))
         if shape == 'mug':
             page.evaluate('__sim.setView(95, 10)'); page.wait_for_timeout(300); page.locator('#view').screenshot(path=os.path.join(OUT, 'shape-mug-side.png'))
-    page.locator('#panel').screenshot(path=os.path.join(OUT, 'shapes-panel.png'))
+    page.locator('#makeCol').screenshot(path=os.path.join(OUT, 'shapes-panel.png'))
     b.close()
 tiles = []
 try: font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 20)

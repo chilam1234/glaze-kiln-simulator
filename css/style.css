@@ -62,6 +62,16 @@ h1 { font: 400 48px/0.86 var(--font-display); color: var(--ink); margin: 0; lett
 .build-stamp { margin: 8px 0 0; font: 9px/1.35 var(--font-mono, ui-monospace, Menlo, Consolas, monospace); color: var(--text-muted); letter-spacing: 0.02em; }
 h2 { font: 500 11px var(--font-body); text-transform: uppercase; letter-spacing: .16em; color: var(--ink); margin: 16px 0 8px; }
 section { border-bottom: 1px solid var(--panel-border); padding-bottom: 8px; }
+.desk-fold { border: none; margin: 0; }
+.desk-fold > summary {
+  font: 500 11px var(--font-body); text-transform: uppercase; letter-spacing: .16em;
+  color: var(--ink); cursor: pointer; list-style: none; padding: 10px 0 6px;
+}
+.desk-fold > summary::-webkit-details-marker { display: none; }
+.desk-fold > summary::after { content: '▾'; float: right; opacity: .55; font-size: 10px; }
+.desk-fold:not([open]) > summary::after { content: '▸'; }
+.desk-fold > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+#qualitySlot:empty { display: none; }
 .row { display: flex; gap: 6px; margin: 4px 0; }
 .row > * { flex: 1; }
 button { font: 500 12px var(--font-btn); letter-spacing: .04em; padding: 6px 8px; border: 1px solid var(--btn-border); border-radius: 0; background: var(--btn-bg); color: var(--text); cursor: pointer; }
@@ -127,8 +137,13 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   min-width: 220px; max-width: 80%; padding: 10px 14px;
   background: var(--paper); border: 1px solid var(--ink); pointer-events: none;
 }
-#kilnProgress[hidden] { display: none !important; }
-#kilnProgressLabel { margin: 0 0 8px; font: 500 12px var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+.kiln-progress[hidden] { display: none !important; }
+.kiln-progress-label { margin: 0 0 8px; font: 500 12px var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+#kilnProgressDock {
+  position: static; transform: none; left: auto; bottom: auto; z-index: auto;
+  min-width: 0; max-width: none; margin: 6px 0 8px; padding: 8px 10px;
+  pointer-events: none;
+}
 .kiln-bar { height: 6px; background: color-mix(in srgb, var(--ink) 16%, var(--paper)); }
 .kiln-bar > i { display: block; height: 100%; width: 0; background: var(--accent); }
 .gpu-note {
@@ -220,6 +235,23 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
 
 /* Phones (portrait ~360–430px) and landscape phones (short viewport). Desktop sidebar stays as-is. */
 @media (max-width: 700px), (max-height: 520px) and (max-width: 960px) {
+  #makeCol, #kilnCol, #glazePane, #kilnDock, #qualitySlot { display: contents; }
+  #kilnProgressDock { display: none !important; }
+  details.desk-fold { display: contents; }
+  details.desk-fold > summary { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] section[data-sheet="glaze"],
+  body:not(.sheet-collapsed)[data-sheet="tool"] section[data-sheet="glaze"] { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet { display: none; }
+  body.sheet-collapsed section[data-sheet="glaze"] { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] section[data-sheet="glaze"] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow: hidden;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
   html, body {
     height: 100%;
     height: 100dvh;
@@ -254,7 +286,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     border-right: none;
     border-top: 1px solid var(--panel-border);
   }
-  #panel > .mast, #panel > h1, .view-folio { display: none; }
+  .mast, #panel > h1, .view-folio { display: none; }
   .desktop-only { display: none; }
   .mobile-only { display: block; }
   .mobile-bar {
@@ -721,6 +753,9 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     max-height: none;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet {
+    display: none;
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] section[data-sheet="glaze"] {
     position: absolute;
     left: 0;
     right: 0;
@@ -733,6 +768,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     background: var(--panel-bg);
     border-bottom: 1px solid var(--panel-border);
     z-index: 6;
+    flex: none;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search { margin-bottom: 4px; padding-bottom: 4px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams { margin-bottom: 4px; padding-bottom: 4px; }
@@ -740,4 +776,208 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze { min-height: 40px; padding: 4px 6px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze .nm { white-space: nowrap; text-overflow: ellipsis; }
   body.sheet-collapsed .sheet { display: none; }
+}
+
+/* Two-column: controls left (making + glaze), pot right, kiln pinned. Not phones. */
+body.desk-2 {
+  display: flex !important;
+  flex-direction: row !important;
+  height: 100% !important;
+  max-height: 100%;
+  overflow: hidden;
+}
+body.desk-2 #panel {
+  width: 300px;
+  flex: none;
+  align-self: stretch;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 16px 12px;
+}
+body.desk-2 #view {
+  flex: 1 1 0%;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+}
+body.desk-2 #makeCol {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  max-height: 34%;
+  min-height: 0;
+  overflow: hidden;
+}
+body.desk-2 #sheet {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.desk-2 #kilnCol {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+}
+body.desk-2 #glazePane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 200px;
+  overflow: hidden;
+}
+body.desk-2 #kilnDock { flex: none; background: var(--panel-bg); }
+body.desk-2 .record-fold > .cloud > h2,
+body.desk-3 .record-fold > .cloud > h2 { display: none; }
+body.desk-2 #kilnProgress { display: none !important; }
+body.desk-2 h1 { font-size: 36px; }
+body.desk-2 .mast { margin-bottom: 8px; }
+body.desk-2 .folio { margin-top: 6px; }
+body.desk-2 .quality-seg { max-width: none; margin-top: 8px; }
+body.desk-2 .glaze-fams {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+body.desk-2 .glaze-search input { min-height: 28px; padding: 5px 8px; }
+body.desk-2 .glaze-fams button { min-height: 28px; padding: 4px 2px; flex: none; }
+body.desk-2 #glazeNow { display: none; }
+body.desk-2 #glazePane h2 { margin: 4px 0 6px; }
+body.desk-2 #glazePane section[data-sheet="glaze"] > p.hint { display: none; }
+body.desk-2 .glaze-chips > summary { padding: 6px 0; }
+body.desk-2 #status { min-height: 1.3em; }
+body.desk-2 .credit { display: none; }
+body.desk-2 #customOpts .shape-group { display: block; }
+body.desk-2 .desk-fold > .shape-group > h3 { display: none; }
+body.desk-2 .sheet > [data-sheet="pot"],
+body.desk-2 .sheet > [data-sheet="tool"],
+body.desk-2 section[data-sheet="glaze"] { display: block; }
+
+/* Three-column: making | pot | glaze+kiln. */
+body.desk-3 {
+  display: grid !important;
+  grid-template-columns: 272px minmax(0, 1fr) 304px;
+  grid-template-rows: 100%;
+  grid-template-areas: "make view kiln";
+  height: 100% !important;
+  max-height: 100%;
+  overflow: hidden;
+}
+body.desk-3 #panel {
+  display: contents;
+  width: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+body.desk-3 #makeCol {
+  grid-area: make;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 16px 12px;
+  background: var(--panel-bg);
+  border-right: 1px solid var(--panel-border);
+}
+body.desk-3 #view {
+  grid-area: view;
+  min-width: 0;
+  min-height: 0;
+}
+body.desk-3 #kilnCol {
+  grid-area: kiln;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 16px 12px;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--panel-border);
+}
+body.desk-3 #sheet {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.desk-3 #glazePane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+}
+body.desk-3 #kilnDock {
+  flex: none;
+  background: var(--panel-bg);
+  border-top: 1px solid var(--panel-border);
+  padding-top: 10px;
+  margin-top: 8px;
+}
+body.desk-3 #kilnProgress { display: none !important; }
+body.desk-3 .mast { margin-bottom: 10px; }
+body.desk-3 h1 { font-size: 40px; }
+body.desk-3 .quality-seg { max-width: none; margin-top: 8px; }
+body.desk-3 #glazePane h2 { margin: 0 0 6px; }
+body.desk-3 #glazeNow { min-height: 0; margin: 4px 0 2px; }
+body.desk-3 #glazePane section[data-sheet="glaze"] > p.hint { display: none; }
+body.desk-3 #status { min-height: 1.6em; }
+body.desk-3 #customOpts .shape-group { display: block; }
+body.desk-3 .desk-fold > .shape-group > h3 { display: none; }
+body.desk-3 #glazes { padding-bottom: 8px; }
+body.desk-3 .actions { padding-top: 0; border-top: none; }
+
+/* Desktop glaze pane: chips scroll; search, families, and Layers stay put above the kiln pin. */
+body.desk-2 #glazePane section[data-sheet="glaze"],
+body.desk-3 #glazePane section[data-sheet="glaze"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+body.desk-2 #glazePane .glaze-search,
+body.desk-3 #glazePane .glaze-search,
+body.desk-2 #glazePane .glaze-fams,
+body.desk-3 #glazePane .glaze-fams,
+body.desk-2 #glazePane #glazeNow,
+body.desk-3 #glazePane #glazeNow,
+body.desk-2 #glazePane section[data-sheet="glaze"] > .slider,
+body.desk-3 #glazePane section[data-sheet="glaze"] > .slider,
+body.desk-2 #glazePane section[data-sheet="glaze"] > p.hint,
+body.desk-3 #glazePane section[data-sheet="glaze"] > p.hint { flex: none; }
+body.desk-2 #glazePane .glaze-chips:not([open]),
+body.desk-3 #glazePane .glaze-chips:not([open]) { flex: none; }
+body.desk-2 #glazePane .glaze-chips[open],
+body.desk-3 #glazePane .glaze-chips[open] {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: auto;
+}
+body.desk-2 #glazePane .glaze-search,
+body.desk-3 #glazePane .glaze-search,
+body.desk-2 #glazePane .glaze-fams,
+body.desk-3 #glazePane .glaze-fams { position: static; }
+body.desk-2 #kilnProgressDock[hidden],
+body.desk-3 #kilnProgressDock[hidden] {
+  display: block !important;
+  visibility: hidden;
+  height: 42px;
+  margin: 6px 0 8px;
+  padding: 0;
+  border: none;
+  overflow: hidden;
 }

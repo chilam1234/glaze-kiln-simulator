@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=6a79c38-20261006-1519';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=6a79c38-20261006-1519';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=6a79c38-20261006-1519';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=6a79c38-20261006-1519';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=6a79c38-20261006-1519';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=6a79c38-20261006-1519';
-import { BUILD, BUILD_TIME } from './build-info.js?v=6a79c38-20261006-1519';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=f58add7-20261007-1709';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=f58add7-20261007-1709';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=f58add7-20261007-1709';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=f58add7-20261007-1709';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=f58add7-20261007-1709';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=f58add7-20261007-1709';
+import { BUILD, BUILD_TIME } from './build-info.js?v=f58add7-20261007-1709';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -1177,17 +1177,21 @@ function animateTo(obj, key, to, ms) {
   return new Promise(res => { const from = obj[key], t0 = performance.now(); const step = () => { const k = Math.min(1, (performance.now() - t0) / ms); obj[key] = from + (to - from) * (k * k * (3 - 2 * k)); k < 1 ? requestAnimationFrame(step) : res(); }; step(); });
 }
 function setFireProgress(p, label) {
-  const wrap = $('kilnProgress'), bar = $('kilnBar'), lab = $('kilnProgressLabel');
-  if (!wrap) return;
-  if (p == null) { wrap.hidden = true; return; }
-  wrap.hidden = false;
-  if (lab && label) lab.textContent = label;
-  if (bar) bar.style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + '%';
+  document.querySelectorAll('.kiln-progress').forEach(wrap => {
+    if (p == null) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    const lab = wrap.querySelector('.kiln-progress-label');
+    if (lab && label) lab.textContent = label;
+    const bar = wrap.querySelector('.kiln-bar > i');
+    if (bar) bar.style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + '%';
+  });
 }
 async function fire(seed) {
   if (ui.simState === 'firing') return;
   if (ui.simState !== 'raw' && ui.simState !== 'fired') return;
-  ui.simState = 'firing'; document.body.classList.add('sheet-collapsed'); refreshUI(); cursor.visible = false; pourRing.visible = false;
+  ui.simState = 'firing';
+  if (isMobileLayout()) document.body.classList.add('sheet-collapsed');
+  refreshUI(); cursor.visible = false; pourRing.visible = false;
   requestDraw();
   const temp = ui.cone === 10 ? 1285 : 1222;
   setStatus(`Firing… heating to cone ${ui.cone} (~${temp}°C, Orton 60°C/h)`);
@@ -1979,11 +1983,33 @@ function drawSection() {
   }
 }
 
+const DESK3_MQ = '(min-width: 1100px)';
+function deskMode() {
+  if (isMobileLayout()) return 'phone';
+  if (window.matchMedia(DESK3_MQ).matches) return '3';
+  return '2';
+}
+function syncQualitySlot() {
+  const q = $('quality'), slot = $('qualitySlot'), mast = document.querySelector('#makeCol .mast, .mast');
+  const mode = deskMode();
+  if (!q) return;
+  if ((mode === '2' || mode === '3') && slot && q.parentElement !== slot) slot.appendChild(q);
+  else if (mode === 'phone' && mast && q.parentElement !== mast) mast.appendChild(q);
+}
 function applyLayout() {
   const mobile = isMobileLayout();
+  const mode = deskMode();
   document.body.classList.toggle('is-mobile', mobile);
+  document.body.classList.toggle('desk-2', mode === '2');
+  document.body.classList.toggle('desk-3', mode === '3');
   document.body.dataset.sheet = ui.sheet;
   document.body.dataset.shapeGroup = ui.shapeGroup;
+  document.body.dataset.layout = mode;
+  syncQualitySlot();
+  const rec = document.querySelector('.record-fold');
+  if (rec) rec.open = mode === 'phone' || (mode === '3' && window.innerHeight >= 880);
+  const chips = document.querySelector('.glaze-chips');
+  if (chips) chips.open = mode !== '2';
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
@@ -1991,9 +2017,11 @@ function applyLayout() {
     document.body.dataset.mobileInit = '1';
   }
   syncOrbitTouches();
-  resize({ fit: isMobileLayout() });
+  resize({ fit: true });
 }
 window.matchMedia(MOBILE_MQ).addEventListener('change', applyLayout);
+window.matchMedia(DESK3_MQ).addEventListener('change', applyLayout);
+window.matchMedia('(min-height: 880px)').addEventListener('change', applyLayout);
 window.addEventListener('orientationchange', () => { setTimeout(applyLayout, 80); });
 
 function brushWord(v) {
@@ -2141,13 +2169,16 @@ function refreshUI() {
 }
 
 // ---------- loop ----------
+let viewWH = [0, 0];
 function resize(opts = {}) {
   syncAppSize();
   const w = view.clientWidth, h = view.clientHeight;
   if (w < 1 || h < 1) return;
   renderer.setPixelRatio(pixelRatioFor(lite));
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
-  if (opts.fit && pot) frameCamera();
+  const sizeChanged = Math.abs(w - viewWH[0]) > 2 || Math.abs(h - viewWH[1]) > 2;
+  viewWH = [w, h];
+  if ((opts.fit || sizeChanged) && pot) frameCamera();
   requestDraw();
 }
 window.addEventListener('resize', resize);
@@ -2270,6 +2301,7 @@ window.__sim = {
   setTouchMode(m) { ui.touchMode = m === 'orbit' ? 'orbit' : m === 'shape' ? 'shape' : 'paint'; ui.touchOrbit = ui.touchMode === 'orbit'; syncOrbitTouches(); refreshUI(); rebuildGizmos(); },
   get sheet() { return ui.sheet; },
   get mobile() { return isMobileLayout(); },
+  get layout() { return deskMode(); },
   get pixelRatio() { return renderer.getPixelRatio(); },
   // screen (client) coordinates of the outer surface at a height fraction, on the side facing the camera, offset by angle
   screenAt(hFrac, dAngleDeg = 0) {
