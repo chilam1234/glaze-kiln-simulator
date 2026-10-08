@@ -1,10 +1,10 @@
 // Pot shapes: profile curves -> custom lathe geometry with arc-length UVs, plus per-row geometric maps
 // (radius, height, normal, curvature-derived edge/cavity maps, gravity direction) used by painting and firing.
 import * as THREE from 'three';
-import { TEX_W, TEX_H } from './grid.js?v=c3c805a-20261008-0844';
-import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js?v=c3c805a-20261008-0844';
+import { TEX_W, TEX_H } from './grid.js?v=fda7d2c-20261008-0853';
+import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js?v=fda7d2c-20261008-0853';
 export { TEX_W, TEX_H };
-export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, sampleOuter, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, footWaxY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './shape.js?v=c3c805a-20261008-0844';
+export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, sampleOuter, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, footWaxY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './shape.js?v=fda7d2c-20261008-0853';
 
 const PROFILES = {
   cylinder() {
