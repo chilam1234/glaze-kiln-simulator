@@ -2632,6 +2632,10 @@ window.__sim = {
   get engine() { return state.engine; },
   smokeGlazes,
   glazeIds() { return GLAZES.map(g => g.id); },
+  glazeIri(id) {
+    const g = GLAZES[GLAZE_INDEX[id]];
+    return (g && g.iri) ? { s: g.iri.s, nm: g.iri.nm, hue: g.iri.hue, spot: g.iri.spot || 0 } : null;
+  },
   previewFiredAll() { return state.previewFiredAll(); },
   get programs() { return (renderer.info && renderer.info.programs && renderer.info.programs.length) || 0; },
   atlas() {
@@ -2697,6 +2701,86 @@ window.__sim = {
   debugDrips(on) { state.debugDrips = on; },
   debugThickness(on) { state.debugThickness = on; if (state.mode === 'fired') state.composeFired(); },
   get glow() { return glow.v; },
+  iriAt(u = 0.5, v = 0.55) {
+    const j = Math.max(0, Math.min(TEX_W - 1, Math.floor((((u % 1) + 1) % 1) * TEX_W)));
+    const k = Math.max(0, Math.min(TEX_H - 1, Math.floor(Math.min(1, Math.max(0, v)) * TEX_H)));
+    const o = (k * TEX_W + j) * 4, Hh = state.height;
+    return { bump: Hh[o], amt: Hh[o + 1], nm: Hh[o + 2], hue: Hh[o + 3], u, v, j, k, mode: state.mode };
+  },
+  renderInfo() {
+    const inf = renderer.info;
+    return {
+      programs: (inf.programs && inf.programs.length) || 0,
+      calls: inf.render.calls,
+      triangles: inf.render.triangles,
+      textures: inf.memory.textures,
+      geometries: inf.memory.geometries,
+    };
+  },
+  forceRender() { renderer.render(scene, camera); drawStats.drawn++; },
+  sampleScreen(hFrac = 0.5, dAngle = 0, radius = 2) {
+    renderer.render(scene, camera);
+    drawStats.drawn++;
+    const p = this.screenAt(hFrac, dAngle);
+    const canvas = renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    const sx = (p.x - rect.left) * (canvas.width / Math.max(1, rect.width));
+    const sy = (p.y - rect.top) * (canvas.height / Math.max(1, rect.height));
+    const gl = renderer.getContext();
+    const r = Math.max(0, radius | 0), side = 2 * r + 1;
+    const x0 = Math.max(0, Math.min(canvas.width - side, Math.round(sx) - r));
+    const yCss = Math.round(sy);
+    const y0 = Math.max(0, Math.min(canvas.height - side, canvas.height - 1 - yCss - r));
+    const buf = new Uint8Array(side * side * 4);
+    gl.readPixels(x0, y0, side, side, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    let rs = 0, gs = 0, bs = 0, n = side * side;
+    for (let i = 0; i < buf.length; i += 4) { rs += buf[i]; gs += buf[i + 1]; bs += buf[i + 2]; }
+    return {
+      r: rs / n, g: gs / n, b: bs / n, n,
+      x: p.x, y: p.y, px: x0, py: y0,
+    };
+  },
+  orbitBench(frames = 24) {
+    const t = controls.target.clone();
+    const pos0 = camera.position.clone();
+    const d0 = camera.position.distanceTo(t);
+    const damp = controls.enableDamping;
+    controls.enableDamping = false;
+    const uploads0 = drawStats.uploads;
+    const bytes0 = drawStats.uploadBytes;
+    const dts = [];
+    let calls = 0;
+    for (let i = 0; i < frames; i++) {
+      const az = (i / frames) * Math.PI * 2;
+      camera.position.set(t.x + Math.sin(az) * d0, t.y + 0.12 * d0, t.z + Math.cos(az) * d0);
+      camera.lookAt(t);
+      camera.updateMatrixWorld();
+      const t0 = performance.now();
+      renderer.render(scene, camera);
+      dts.push(performance.now() - t0);
+      drawStats.drawn++;
+      calls = renderer.info.render.calls;
+    }
+    camera.position.copy(pos0);
+    camera.lookAt(t);
+    camera.updateMatrixWorld();
+    controls.enableDamping = damp;
+    controls.update();
+    dts.sort((a, b) => a - b);
+    const mean = dts.reduce((a, b) => a + b, 0) / dts.length;
+    const median = dts[dts.length >> 1];
+    return {
+      frames,
+      median: +median.toFixed(3),
+      mean: +mean.toFixed(3),
+      min: +dts[0].toFixed(3),
+      max: +dts[dts.length - 1].toFixed(3),
+      uploads: drawStats.uploads - uploads0,
+      uploadBytes: drawStats.uploadBytes - bytes0,
+      programs: (renderer.info.programs && renderer.info.programs.length) || 0,
+      calls,
+    };
+  },
 };
 function outerRow(hFrac) {
   const y = hFrac * pot.height; let best = 0, bd = 1e9;
