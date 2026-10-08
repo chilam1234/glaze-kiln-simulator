@@ -2707,6 +2707,10 @@ window.__sim = {
     const o = (k * TEX_W + j) * 4, Hh = state.height;
     return { bump: Hh[o], amt: Hh[o + 1], nm: Hh[o + 2], hue: Hh[o + 3], u, v, j, k, mode: state.mode };
   },
+  iriAtHeight(hFrac = 0.55, angleDeg = 20) {
+    const uv = this.strokeUV(hFrac, angleDeg);
+    return Object.assign(this.iriAt(uv.u, uv.v), { hFrac, angleDeg });
+  },
   renderInfo() {
     const inf = renderer.info;
     return {
@@ -2748,8 +2752,10 @@ window.__sim = {
     controls.enableDamping = false;
     const uploads0 = drawStats.uploads;
     const bytes0 = drawStats.uploadBytes;
+    const gl = renderer.getContext();
     const dts = [];
     let calls = 0;
+    for (let w = 0; w < 3; w++) { renderer.render(scene, camera); if (gl.finish) gl.finish(); }
     for (let i = 0; i < frames; i++) {
       const az = (i / frames) * Math.PI * 2;
       camera.position.set(t.x + Math.sin(az) * d0, t.y + 0.12 * d0, t.z + Math.cos(az) * d0);
@@ -2757,6 +2763,7 @@ window.__sim = {
       camera.updateMatrixWorld();
       const t0 = performance.now();
       renderer.render(scene, camera);
+      if (gl.finish) gl.finish();
       dts.push(performance.now() - t0);
       drawStats.drawn++;
       calls = renderer.info.render.calls;
