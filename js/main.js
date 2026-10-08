@@ -2753,17 +2753,18 @@ window.__sim = {
     const uploads0 = drawStats.uploads;
     const bytes0 = drawStats.uploadBytes;
     const gl = renderer.getContext();
+    const pix = new Uint8Array(4);
     const dts = [];
     let calls = 0;
-    for (let w = 0; w < 3; w++) { renderer.render(scene, camera); if (gl.finish) gl.finish(); }
+    const sync = () => { renderer.render(scene, camera); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pix); };
+    for (let w = 0; w < 3; w++) sync();
     for (let i = 0; i < frames; i++) {
       const az = (i / frames) * Math.PI * 2;
       camera.position.set(t.x + Math.sin(az) * d0, t.y + 0.12 * d0, t.z + Math.cos(az) * d0);
       camera.lookAt(t);
       camera.updateMatrixWorld();
       const t0 = performance.now();
-      renderer.render(scene, camera);
-      if (gl.finish) gl.finish();
+      sync();
       dts.push(performance.now() - t0);
       drawStats.drawn++;
       calls = renderer.info.render.calls;

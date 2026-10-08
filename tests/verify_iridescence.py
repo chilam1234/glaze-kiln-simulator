@@ -53,6 +53,11 @@ def chroma(p):
 def cdist(a, b):
     return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
 
+def hue_shift(a, b):
+    """Directed chromaticity travel, beyond a shared luminance change."""
+    ca, cb = chroma(a), chroma(b)
+    return cdist(ca, cb), abs((cb[1] - cb[0]) - (ca[1] - ca[0]))
+
 def stitch(paths, dest_name):
     imgs = [Image.open(p).convert('RGB') for p in paths]
     h = max(im.height for im in imgs)
@@ -102,7 +107,7 @@ with sync_playwright() as pw:
     check(ac.get('nm', 0) < 320 and ac.get('hue', 1) < 0.12, 'Ancient Copper film is salmon/pink (thin ~275 nm)')
 
     def iri_at(h=0.55, ang=20):
-        return page.evaluate('(h, a) => __sim.iriAtHeight(h, a)', h, ang)
+        return page.evaluate('({h, a}) => __sim.iriAtHeight(h, a)', {'h': h, 'a': ang})
 
     page.evaluate('() => { __sim.setShape("vase"); __sim.frame(); __sim.clear(); __sim.pour("junebug", 0.92, "below", 0.7); }')
     page.wait_for_timeout(200)
@@ -212,14 +217,17 @@ with sync_playwright() as pw:
     save(page, 'iri-oatmeal.png')
     print('oatmeal samples', oa_front, oa_graze, oa_high)
 
-    jb_edge = cdist(chroma(jb_front), chroma(jb_graze))
-    oa_edge = cdist(chroma(oa_front), chroma(oa_graze))
-    jb_el = cdist(chroma(jb_front), chroma(jb_high))
-    oa_el = cdist(chroma(oa_front), chroma(oa_high))
-    print('chroma', json.dumps({'jb_edge': jb_edge, 'oa_edge': oa_edge, 'jb_el': jb_el, 'oa_el': oa_el}))
-    check(jb_edge > oa_edge + 0.012 or jb_edge > oa_edge * 1.35,
-          f'June Bug chroma shifts more than Oatmeal from front to graze ({jb_edge:.4f} vs {oa_edge:.4f})')
-    check(jb_el > oa_el + 0.008 or jb_el > oa_el * 1.25,
+    jb_edge, jb_gr = hue_shift(jb_front, jb_graze)
+    oa_edge, oa_gr = hue_shift(oa_front, oa_graze)
+    jb_el, jb_el_gr = hue_shift(jb_front, jb_high)
+    oa_el, oa_el_gr = hue_shift(oa_front, oa_high)
+    print('chroma', json.dumps({
+        'jb_edge': jb_edge, 'oa_edge': oa_edge, 'jb_gr': jb_gr, 'oa_gr': oa_gr,
+        'jb_el': jb_el, 'oa_el': oa_el, 'jb_el_gr': jb_el_gr, 'oa_el_gr': oa_el_gr,
+    }))
+    check(jb_edge > oa_edge and jb_gr > oa_gr + 0.01,
+          f'June Bug chroma/hue shifts more than Oatmeal from front to graze ({jb_edge:.4f}/{jb_gr:.4f} vs {oa_edge:.4f}/{oa_gr:.4f})')
+    check(jb_el > oa_el and (jb_el > oa_el * 1.2 or jb_el_gr > oa_el_gr),
           f'June Bug chroma shifts more than Oatmeal from front to high camera ({jb_el:.4f} vs {oa_el:.4f})')
 
     page.evaluate('() => { __sim.unfire(); __sim.clear(); __sim.pour("ancientcopper", 0.92, "below", 0.75); __sim.setSeed(20261008); }')

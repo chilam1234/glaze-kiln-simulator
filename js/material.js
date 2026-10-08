@@ -117,7 +117,7 @@ float crackLines(vec3 p, float scale, float width){
     vec3 tint = vec3(0.50 + 0.50 * cos(h), 0.50 + 0.50 * cos(h - 2.094395), 0.50 + 0.50 * cos(h + 2.094395));
     film *= mix(vec3(1.0), tint, 0.42);
     float schlick = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
-    outgoingLight += film * iriAmt * mix(0.30, 1.0, schlick) * 0.22;
+    outgoingLight += film * iriAmt * mix(0.18, 1.0, schlick) * 0.28;
   }
 }
 #endif
