@@ -1,15 +1,47 @@
 // Glaze state stored in UV space: one thickness map + paint-order stamp map per glaze (so any number of glazes
 // can overlap per texel and we know which is on top). Painting, pouring, CPU firing simulation (leveling,
 // gravity flow with drips), and composition into the textures the shader samples.
-import { TEX_W, TEX_H } from './grid.js?v=f58add7-20261007-1709';
-import { GLAZES, pairFor, CONE10 } from './glazes.js?v=f58add7-20261007-1709';
-import { fbm3, voronoi3 } from './noise.js?v=f58add7-20261007-1709';
-import { BUILD } from './build-info.js?v=f58add7-20261007-1709';
+import { TEX_W, TEX_H } from './grid.js?v=fda7d2c-20261008-0853';
+import { GLAZES, pairFor, CONE10 } from './glazes.js?v=fda7d2c-20261008-0853';
+import { fbm3, voronoi3 } from './noise.js?v=fda7d2c-20261008-0853';
+import { BUILD } from './build-info.js?v=fda7d2c-20261008-0853';
 
 const W = TEX_W, H = TEX_H, N = W * H;
 const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
 const q4 = (n) => Math.round(n * 1e4) / 1e4;
 const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const IRI_RAW = 0.45;
+// Pack view-dependent film into height.gba (bump stays in .r). Amount follows painted
+// thickness; oil-spot glazes boost a dark metallic halo around crystal flecks.
+function packIri(g, t, i) {
+  const iri = g && g.iri;
+  if (!iri || !(iri.s > 0)) return { amt: 0, nm: 0, hue: 0 };
+  let s = iri.s * smooth(0.05, 0.42, t);
+  if (iri.spot) {
+    const hsh = Math.sin((i + 1) * 12.9898 + 78.233) * 43758.5453;
+    const f = hsh - Math.floor(hsh);
+    const halo = smooth(0.78, 0.90, f) * (1 - smooth(0.93, 0.995, f));
+    s *= 0.22 + 1.15 * halo;
+  }
+  return {
+    amt: Math.round(255 * clamp01(s)),
+    nm: Math.round(255 * clamp01(((iri.nm || 320) - 180) / 560)),
+    hue: Math.round(255 * clamp01(iri.hue || 0)),
+  };
+}
+function blendIri(topG, topT, underG, underT, i, rawScale) {
+  const pT = packIri(topG, topT, i);
+  let amt = pT.amt, nm = pT.nm, hue = pT.hue;
+  const leak = underG && underG.iri ? (1 - smooth(0.12, 0.55, topT)) : 0;
+  if (leak > 0.02) {
+    const pU = packIri(underG, underT, i);
+    amt = Math.round(amt * (1 - leak) + pU.amt * leak);
+    nm = Math.round(nm * (1 - leak) + pU.nm * leak);
+    hue = Math.round(hue * (1 - leak) + pU.hue * leak);
+  }
+  if (rawScale != null && rawScale !== 1) amt = Math.round(amt * rawScale);
+  return { amt, nm, hue: amt ? hue : 255 };
+}
 function hexLin(h) {
   const n = parseInt(h.slice(1), 16), c = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   return c.map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
@@ -48,7 +80,7 @@ function buildGlazeTable(cone) {
       breakL: breakCol ? hexLin(breakCol) : null,
       variA: (vari ? [].concat(vari) : []).map(v => ({ ...v, L: hexLin(v.col) })),
       transl: g.transl || 0, rutile: g.rutile || 0, iron: g.iron || 0, metal: g.metal || 0,
-      flux: g.flux || 0, inverse: !!g.inverse,
+      flux: g.flux || 0, inverse: !!g.inverse, iri: g.iri || null,
     };
   });
 }
@@ -471,7 +503,10 @@ export class GlazeState {
       const cov = smooth(0, 0.12, tot);
       P[o] = 0; P[o + 1] = 235 - 15 * cov; P[o + 2] = 0; P[o + 3] = 255;
       F[o] = 0; F[o + 1] = 0; F[o + 2] = Math.round(255 * (1 - cov) * 0.55); F[o + 3] = 0;
-      Hh[o] = Math.min(255, tot * 110); Hh[o + 1] = Hh[o]; Hh[o + 2] = Hh[o]; Hh[o + 3] = 255;
+      Hh[o] = Math.min(255, tot * 110);
+      const topQ = n ? idx[n - 1] : -1, undQ = n > 1 ? idx[n - 2] : -1;
+      const ir = topQ >= 0 ? blendIri(G[topQ], this.thick[topQ][i], undQ >= 0 ? G[undQ] : null, undQ >= 0 ? this.thick[undQ][i] : 0, i, IRI_RAW) : { amt: 0, nm: 0, hue: 255 };
+      Hh[o + 1] = ir.amt; Hh[o + 2] = ir.nm; Hh[o + 3] = ir.hue;
     }
     this.lastComposeK0 = k0;
     this.lastComposeK1 = k1;
@@ -954,6 +989,7 @@ export class GlazeState {
           if (s > topS || (s === topS && te[q] > te[top])) { topS = s; top = q; }
         }
         let mtlO = 0, r = cr, g = cg, b = cb, rough = 0.74, cc = 0, crk = 0, crkF = 0, crkT = 0, spk = 1, h = 0;
+        let iriAmt = 0, iriNm = 0, iriHue = 255;
         if (T > 0.006) {
           let wr = 0, wg = 0, wb = 0, ws = 0, wsC = 0, tR = 0, tG = 0, tB = 0, tW = 0, ro = 0, roU = 0, roT = 0, tr = 1, cK = 0, cF = 0, cT = 0, sp = 0, sec = -1, secT = 0, mtl = 0;
           for (let li = 0; li < nF; li++) {
@@ -1076,12 +1112,14 @@ export class GlazeState {
           cc = cover * Math.pow(clamp01(1 - rough * 1.6), 1.3);
           spk = (1 - cover) + cover * (sp / ws + (1 - op) * 0.2);   // clay specks show only faintly through thin glaze
           h = T; mtlO = metal * cover;
+          const ir = blendIri(G[top], te[top], sec >= 0 ? G[sec] : null, sec >= 0 ? te[sec] : 0, i, 1);
+          iriAmt = ir.amt; iriNm = ir.nm; iriHue = ir.hue;
         }
         if (this.debugThickness) { const v = toS(Math.min(1, h / 2)); r = g = b = 0; C[o] = C[o + 1] = C[o + 2] = v; C[o + 3] = 255; }
         else { C[o] = toS(r); C[o + 1] = toS(g); C[o + 2] = toS(b); C[o + 3] = 255; }
         P[o] = Math.round(255 * cc * (1 - 0.6 * mtlO)); P[o + 1] = Math.round(255 * clamp01(rough)); P[o + 2] = Math.round(255 * clamp01(mtlO)); P[o + 3] = 255;
         F[o] = Math.round(255 * clamp01(crk)); F[o + 1] = Math.round(255 * crkF); F[o + 2] = Math.round(255 * clamp01(spk)); F[o + 3] = Math.round(255 * crkT);
-        Hh[o] = 255 * Math.tanh(h * 0.43); Hh[o + 1] = Hh[o]; Hh[o + 2] = Hh[o]; Hh[o + 3] = 255;   // soft clamp: thick beads never plateau into a hard bump edge
+        Hh[o] = 255 * Math.tanh(h * 0.43); Hh[o + 1] = iriAmt; Hh[o + 2] = iriNm; Hh[o + 3] = iriHue;   // bump in R; film amount/nm/hue in GBA
       }
     }
     this.lastComposeK0 = 0;
@@ -1118,7 +1156,8 @@ export class GlazeState {
           const o = (k * W + j) * 4;
           C[o] = r; C[o + 1] = g; C[o + 2] = b; C[o + 3] = 255;
           P[o] = 200; P[o + 1] = rough; P[o + 2] = 0; P[o + 3] = 255;
-          Hh[o] = 80; Hh[o + 1] = 80; Hh[o + 2] = 80; Hh[o + 3] = 255;
+          const ir = packIri(G[q], 0.7, k * W + j);
+          Hh[o] = 80; Hh[o + 1] = ir.amt; Hh[o + 2] = ir.nm; Hh[o + 3] = ir.amt ? ir.hue : 255;
         }
       }
     }

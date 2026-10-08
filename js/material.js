@@ -1,4 +1,6 @@
-// MeshPhysicalMaterial patched with: object-space Voronoi crackle network, iron/carbon speckle, and kiln glow.
+// MeshPhysicalMaterial patched with: object-space Voronoi crackle network, iron/carbon speckle,
+// kiln glow, and a cheap view-dependent thin-film (path-difference cosine, no spectral integral).
+// Film amount / nm / hue live in bumpMap.gba so every glaze shares one program (no #defines).
 import * as THREE from 'three';
 
 export function makeSimplePotMaterial(tex, lite) {
@@ -22,8 +24,8 @@ export function makePotMaterial(tex) {
   });
   const uniforms = { uFx: { value: tex.fx }, uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color(1, 0.35, 0.08) } };
   mat.userData.uniforms = uniforms;
-  // Stable key so a shape switch never looks like a new program / HLSL compile.
-  mat.customProgramCacheKey = () => 'glaze-pot-physical-v1';
+  // Stable key so a shape or glaze switch never looks like a new program / HLSL compile.
+  mat.customProgramCacheKey = () => 'glaze-pot-physical-v2-film';
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
@@ -90,7 +92,36 @@ float crackLines(vec3 p, float scale, float width){
   hot += diffuseColor.rgb * (0.22 / max(y, 0.05));
   diffuseColor.rgb = mix(diffuseColor.rgb, hot, uGlow * 0.45);
   totalEmissiveRadiance += hot * uGlow * (0.75 + 0.25 * pow(ndv, 1.15));
-}`);
+}`)
+      .replace('#include <opaque_fragment>', `#ifdef USE_BUMPMAP
+{
+  // Packed film: G amount, B thickness 180–740 nm, A tint hue. Amt=0 is a no-op
+  // so non-iridescent glazes keep the same lighting (bump still reads .x only).
+  vec4 iriPack = texture2D(bumpMap, vBumpMapUv);
+  float iriAmt = iriPack.g;
+  if (iriAmt > 0.003) {
+    vec3 nrm = normalize(normal);
+    vec3 viewDir = normalize(vViewPosition);
+    float ndv = clamp(abs(dot(nrm, viewDir)), 0.0, 1.0);
+    float nFilm = 1.45;
+    float sinT = min(1.0, sqrt(max(0.0, 1.0 - ndv * ndv)) / nFilm);
+    float cosT = sqrt(max(0.0, 1.0 - sinT * sinT));
+    float dNm = mix(180.0, 740.0, iriPack.b);
+    float opd = 2.0 * nFilm * dNm * cosT;
+    vec3 film = 0.5 + 0.5 * vec3(
+      cos(6.28318530718 * opd / 650.0),
+      cos(6.28318530718 * opd / 532.0),
+      cos(6.28318530718 * opd / 455.0)
+    );
+    float h = iriPack.a * 6.28318530718;
+    vec3 tint = vec3(0.50 + 0.50 * cos(h), 0.50 + 0.50 * cos(h - 2.094395), 0.50 + 0.50 * cos(h + 2.094395));
+    film *= mix(vec3(1.0), tint, 0.42);
+    float schlick = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
+    outgoingLight += film * iriAmt * mix(0.18, 1.0, schlick) * 0.28;
+  }
+}
+#endif
+#include <opaque_fragment>`);
   };
   return mat;
 }
