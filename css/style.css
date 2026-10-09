@@ -405,32 +405,24 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     max-height: 22vh;
     max-height: 22dvh;
   }
+  /* Glaze lives in #glazePane, not #sheet. Showing an empty .sheet here
+     ate the drawer (flex:1) and let Cone/Unfire paint over the chips. */
   body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0%;
-    max-height: none;
-    min-height: 0;
-    overflow: hidden;
+    display: none;
   }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] .sheet > [data-sheet="glaze"] {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0%;
-    min-height: 0;
-    overflow: hidden;
-    border-bottom: none;
-    padding-bottom: 0;
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-chips[hidden] {
+    display: none;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search,
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams {
     position: static;
     flex: none;
-    margin: 0 0 8px;
-    padding: 0 0 8px;
+    margin: 0 0 6px;
+    padding: 0 0 6px;
     background: var(--panel-bg);
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search { padding-top: 2px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams button { min-height: 36px; padding: 4px 2px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] #glazes {
     flex: 1 1 0%;
     min-height: 0;
@@ -442,13 +434,9 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] > h2,
   body:not(.sheet-collapsed)[data-sheet="glaze"] #glazes .fam { display: none; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] > p.hint:not(#glazeNow) { display: none; }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] #glazeNow {
-    flex: none;
-    min-height: 0;
-    margin: 4px 0 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #glazeNow,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .build-stamp {
+    display: none;
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] [data-sheet="glaze"] > .slider {
     flex: none;
@@ -592,7 +580,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="pot"] #cone button {
     min-height: 40px;
   }
-  body:not(.sheet-collapsed)[data-sheet="pot"] #status { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] #status,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] #status { display: none; }
   body.sheet-collapsed .sheet { display: none; }
   body.sheet-collapsed #panel { max-height: none; flex: 0 0 auto; }
   body.sheet-collapsed #view {

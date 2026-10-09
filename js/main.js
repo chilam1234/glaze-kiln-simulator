@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=fda7d2c-20261008-0853';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=fda7d2c-20261008-0853';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=fda7d2c-20261008-0853';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=fda7d2c-20261008-0853';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=fda7d2c-20261008-0853';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=fda7d2c-20261008-0853';
-import { BUILD, BUILD_TIME } from './build-info.js?v=fda7d2c-20261008-0853';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=e07da0a-20261009-0514';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=e07da0a-20261009-0514';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=e07da0a-20261009-0514';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=e07da0a-20261009-0514';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=e07da0a-20261009-0514';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=e07da0a-20261009-0514';
+import { BUILD, BUILD_TIME } from './build-info.js?v=e07da0a-20261009-0514';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -1525,6 +1525,11 @@ for (const [fam, label] of FAMILIES) {
     grid.appendChild(b);
   }
   famWrap.appendChild(grid);
+  // Hidden <summary> on the phone Glaze sheet: Safari treats a tap on a chip as
+  // toggling the family <details> closed, so the selection appears to do nothing.
+  famWrap.addEventListener('toggle', () => {
+    if (isMobileLayout() && ui.sheet === 'glaze' && !famWrap.open) famWrap.open = true;
+  });
   gl.appendChild(famWrap);
 }
 const glazeSearch = $('glazeSearch');
@@ -1996,6 +2001,23 @@ function syncQualitySlot() {
   if ((mode === '2' || mode === '3') && slot && q.parentElement !== slot) slot.appendChild(q);
   else if (mode === 'phone' && mast && q.parentElement !== mast) mast.appendChild(q);
 }
+function placeGlazeList() {
+  const chips = document.querySelector('.glaze-chips');
+  const list = $('glazes');
+  const section = document.querySelector('#glazePane section[data-sheet="glaze"]')
+    || document.querySelector('section[data-sheet="glaze"]');
+  if (!chips || !list || !section) return;
+  // Safari will not give <details> a flex height, and display:contents on
+  // details drops pointer events. On the phone sheet, hoist the chip list
+  // out so it is a real flex child of the Glaze section.
+  if (isMobileLayout()) {
+    if (list.parentElement !== section) section.appendChild(list);
+    chips.hidden = true;
+  } else {
+    if (list.parentElement !== chips) chips.appendChild(list);
+    chips.hidden = false;
+  }
+}
 function applyLayout() {
   const mobile = isMobileLayout();
   const mode = deskMode();
@@ -2009,7 +2031,16 @@ function applyLayout() {
   const rec = document.querySelector('.record-fold');
   if (rec) rec.open = mode === 'phone' || (mode === '3' && window.innerHeight >= 880);
   const chips = document.querySelector('.glaze-chips');
-  if (chips) chips.open = mode !== '2';
+  if (chips) {
+    chips.open = mode !== '2';
+    if (!chips.dataset.keepOpen) {
+      chips.dataset.keepOpen = '1';
+      chips.addEventListener('toggle', () => {
+        if (deskMode() !== '2' && !chips.open) chips.open = true;
+      });
+    }
+  }
+  placeGlazeList();
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
