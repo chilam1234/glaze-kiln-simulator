@@ -1525,6 +1525,11 @@ for (const [fam, label] of FAMILIES) {
     grid.appendChild(b);
   }
   famWrap.appendChild(grid);
+  // Hidden <summary> on the phone Glaze sheet: Safari treats a tap on a chip as
+  // toggling the family <details> closed, so the selection appears to do nothing.
+  famWrap.addEventListener('toggle', () => {
+    if (isMobileLayout() && ui.sheet === 'glaze' && !famWrap.open) famWrap.open = true;
+  });
   gl.appendChild(famWrap);
 }
 const glazeSearch = $('glazeSearch');
@@ -1996,6 +2001,23 @@ function syncQualitySlot() {
   if ((mode === '2' || mode === '3') && slot && q.parentElement !== slot) slot.appendChild(q);
   else if (mode === 'phone' && mast && q.parentElement !== mast) mast.appendChild(q);
 }
+function placeGlazeList() {
+  const chips = document.querySelector('.glaze-chips');
+  const list = $('glazes');
+  const section = document.querySelector('#glazePane section[data-sheet="glaze"]')
+    || document.querySelector('section[data-sheet="glaze"]');
+  if (!chips || !list || !section) return;
+  // Safari will not give <details> a flex height, and display:contents on
+  // details drops pointer events. On the phone sheet, hoist the chip list
+  // out so it is a real flex child of the Glaze section.
+  if (isMobileLayout()) {
+    if (list.parentElement !== section) section.appendChild(list);
+    chips.hidden = true;
+  } else {
+    if (list.parentElement !== chips) chips.appendChild(list);
+    chips.hidden = false;
+  }
+}
 function applyLayout() {
   const mobile = isMobileLayout();
   const mode = deskMode();
@@ -2009,7 +2031,16 @@ function applyLayout() {
   const rec = document.querySelector('.record-fold');
   if (rec) rec.open = mode === 'phone' || (mode === '3' && window.innerHeight >= 880);
   const chips = document.querySelector('.glaze-chips');
-  if (chips) chips.open = mode !== '2';
+  if (chips) {
+    chips.open = mode !== '2';
+    if (!chips.dataset.keepOpen) {
+      chips.dataset.keepOpen = '1';
+      chips.addEventListener('toggle', () => {
+        if (deskMode() !== '2' && !chips.open) chips.open = true;
+      });
+    }
+  }
+  placeGlazeList();
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
