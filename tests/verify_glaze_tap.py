@@ -139,18 +139,35 @@ def run_phone(pw, engine, device_name='iPhone 13'):
     page.evaluate('() => { __sim.setTool("brush"); __sim.setBrushSize(0.16); __sim.setView(20, 12); }')
     page.wait_for_timeout(200)
     before = dict(page.evaluate('() => __sim.stats()')).get(last, 0)
-    page.evaluate(f'() => {{ const pts = [0, 20, -20].map(a => __sim.screenAt(0.55, a)); window.__tapPts = pts; }}')
-    # UV brush using the currently selected glaze (ui.glaze), not an explicit id.
+    # UV brush using the currently selected glaze (active chip), not an explicit id.
+    # stats() is [[id, amt], ...]; Object.fromEntries so we can read by glaze id.
     painted = page.evaluate('''() => {
       const id = (document.querySelector('.glaze.active')||{}).dataset?.glaze;
       __sim.brushBand(id, 0.55, 0.6, 0.14);
-      return { id, after: (__sim.stats() || {})[id] };
+      const stats = Object.fromEntries(__sim.stats() || []);
+      return { id, after: stats[id] };
     }''')
     print('paint', painted, 'before', before)
     check(painted['id'] == last, f'{engine} paint uses the tapped glaze {last}')
     check((painted.get('after') or 0) > (before or 0) + 1e-4, f'{engine} stroke laid {last} on the pot')
 
     save(page, f'glaze-tap-{engine}-after.png')
+
+    # Phone Pot / Handle / Spout / Foot subtabs still switch groups.
+    page.evaluate('() => { __sim.setShape("custom"); __sim.setSheet("pot", false); }')
+    page.wait_for_timeout(200)
+    for group in ('pot', 'handle', 'spout', 'foot'):
+        loc = page.locator(f'#shapeSubtabs button[data-group="{group}"]')
+        loc.first.scroll_into_view_if_needed()
+        box = loc.first.bounding_box()
+        check(bool(box), f'{engine} {group} tab has a box')
+        if box:
+            page.touchscreen.tap(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+            page.wait_for_timeout(120)
+        info = page.evaluate('() => ({ group: __sim.shapeGroup, active: document.querySelector("#shapeSubtabs button.active")?.dataset?.group })')
+        check(info.get('group') == group and info.get('active') == group,
+              f'{engine} tap {group} tab selects that shape group (got {info})')
+
     browser.close()
 
 with sync_playwright() as pw:
