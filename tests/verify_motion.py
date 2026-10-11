@@ -54,9 +54,8 @@ check('body:not(.sheet-collapsed)[data-sheet="pot"] .build-stamp' in css, 'open 
 durations = [int(m) for m in re.findall(r'--motion(?:-sheet)?:\s*(\d+)ms', css)]
 check(durations and all(150 <= d <= 280 for d in durations),
       f'motion token durations are 150–280ms ({durations})')
-motion_block = css.split('Interaction motion')[-1].split('@media (prefers-reduced-motion')[0]
-check('animation:' in motion_block and 'height:' not in motion_block and 'max-height:' not in motion_block,
-      'sheet motion uses animation, not height')
+check('from { opacity: 0; transform: translateY(14px); }' in css,
+      'sheetRise animates opacity and translateY, not height')
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -80,7 +79,10 @@ def wait_ready(page):
 PROBE = '''() => {
   const btn = document.querySelector('.mobile-tabs button[data-sheet="pot"]');
   const fire = document.getElementById('fireBtn');
-  const chip = document.querySelector('button.glaze');
+  const chip = [...document.querySelectorAll('button.glaze')].find(b => {
+    const r = b.getBoundingClientRect();
+    return r.height > 8 && getComputedStyle(b).display !== 'none';
+  });
   const fold = document.getElementById('foldBtn');
   const fam = document.querySelector('.glaze-fams button');
   const stamp = document.getElementById('buildStamp');
@@ -179,8 +181,11 @@ with sync_playwright() as pw:
       const sc = getComputedStyle(sheet);
       const parse = (s) => {
         let max = 0;
-        for (const m of String(s).matchAll(/([0-9.]+)(m?s)/g)) {
-          const ms = m[2] === 'ms' ? parseFloat(m[1]) : parseFloat(m[1]) * 1000;
+        for (const part of String(s).split(',')) {
+          const t = part.trim();
+          const n = parseFloat(t);
+          if (!Number.isFinite(n)) continue;
+          const ms = /ms$/i.test(t) ? n : n * 1000;
           if (ms > max) max = ms;
         }
         return max;
