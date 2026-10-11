@@ -56,6 +56,26 @@
         <button data-shape="mug">Mug</button>
         <button data-shape="custom" title="Tweak the current outline with draggable nodes">Custom</button>
       </div>
+      <div class="dims" id="clayRow" title="Estimate of wet throwing clay from this pot's silhouette, wall, and foot — not a cylinder guess. Includes a trim allowance. Not dry or fired weight.">
+        <span>Clay <small>est.</small></span>
+        <b id="clayOut">—</b>
+      </div>
+      <p class="hint clay-meta" id="clayMeta">
+        <span id="clayIncl">incl. 20% trim</span>
+        <span class="clay-opts">
+          <label>Trim <select id="clayWaste" aria-label="Trimming allowance">
+            <option value="0.15">15%</option>
+            <option value="0.20" selected>20%</option>
+            <option value="0.25">25%</option>
+          </select></label>
+          <label>Density <select id="clayDens" aria-label="Wet clay density">
+            <option value="1.75">1.75</option>
+            <option value="1.80" selected>1.80</option>
+            <option value="2.00">2.00</option>
+          </select> g/cm³</label>
+        </span>
+        <span class="clay-note">Wet clay to throw. Drying/firing shrinks ~10–15%.</span>
+      </p>
       <div id="customOpts" hidden>
         <p class="hint" id="customHint">Drag the red wall nodes or green handle nodes. Tap an outline to add a node; select one, then Delete to remove it. Grey dots pull the wall bulge. Blue/yellow grips move the teapot spout.</p>
         <div class="shape-subtabs" id="shapeSubtabs" role="tablist" aria-label="Shape group">

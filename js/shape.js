@@ -867,6 +867,69 @@ export function specToDef(spec) {
   };
 }
 
+/** Wet throwing clay, g/cm³. Studio stoneware is usually cited ~1.75–2.0. */
+export const CLAY_DENSITY_G_CM3 = 1.8;
+/** Extra clay to weigh out for trimming / waste. */
+export const CLAY_WASTE = 0.20;
+
+/** Solid of revolution of a lathe path about Y: Σ π r² Δy (signed, then abs). */
+export function clayVolumeFromPath(path, n = 1600) {
+  if (!path || typeof path.getPoints !== 'function') return 0;
+  const pts = path.getPoints(n);
+  if (!pts || pts.length < 2) return 0;
+  let V = 0;
+  const add = (a, b) => {
+    const r0 = Math.max(0, a.x), r1 = Math.max(0, b.x);
+    V += Math.PI * (r0 * r0 + r1 * r1) * 0.5 * (b.y - a.y);
+  };
+  for (let i = 0; i < pts.length - 1; i++) add(pts[i], pts[i + 1]);
+  const first = pts[0], last = pts[pts.length - 1];
+  if (Math.abs(last.x - first.x) > 1e-6 || Math.abs(last.y - first.y) > 1e-6) add(last, first);
+  return Math.abs(V);
+}
+
+function tubeUnits(curve, r0, r1) {
+  if (!curve || typeof curve.getLength !== 'function') return 0;
+  const a = Math.max(0, r0 || 0);
+  const b = Math.max(0, r1 == null ? a : r1);
+  return Math.PI * (a * a + b * b) * 0.5 * curve.getLength();
+}
+
+export function extrasClayUnits(def) {
+  if (!def) return 0;
+  let V = 0;
+  if (def.handle && def.handle.curve) V += tubeUnits(def.handle.curve, def.handle.radius || 0.055);
+  if (def.spoutTube && def.spoutTube.curve) {
+    V += tubeUnits(def.spoutTube.curve, def.spoutTube.radius, def.spoutTube.radiusEnd);
+  }
+  return V;
+}
+
+export function clayMassFromUnits(units, opts = {}) {
+  const density = opts.density == null ? CLAY_DENSITY_G_CM3 : +opts.density;
+  const waste = opts.waste == null ? CLAY_WASTE : +opts.waste;
+  const cm3 = Math.max(0, units) * (UNIT_CM ** 3);
+  const wetG = cm3 * density;
+  const weighG = wetG * (1 + Math.max(0, waste));
+  return {
+    units, cm3, density, waste,
+    wetG, weighG,
+    lb: weighG / 453.59237,
+    oz: weighG / 28.349523125,
+    wetLb: wetG / 453.59237,
+  };
+}
+
+export function estimateClayFromDef(def, opts) {
+  if (!def || !def.path) return clayMassFromUnits(0, opts);
+  return clayMassFromUnits(clayVolumeFromPath(def.path) + extrasClayUnits(def), opts);
+}
+
+/** Clay in the lathe mesh (outer − inner + foot) plus handle/spout tubes. */
+export function estimateClay(spec, opts) {
+  return estimateClayFromDef(specToDef(spec), opts);
+}
+
 function rdp(pts, eps) {
   if (pts.length < 3) return pts.slice();
   const a = pts[0], b = pts[pts.length - 1];

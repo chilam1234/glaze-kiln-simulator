@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './pot.js?v=e07da0a-20261009-0514';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=e07da0a-20261009-0514';
 import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=e07da0a-20261009-0514';
 import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=e07da0a-20261009-0514';
 import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=e07da0a-20261009-0514';
@@ -1666,6 +1666,30 @@ document.querySelectorAll('#touchMode button').forEach(b => b.onclick = () => {
 });
 
 function fmtCm(v) { return v.toFixed(1) + ' cm'; }
+function clayOpts() {
+  const density = +($('clayDens') && $('clayDens').value || 1.8);
+  const waste = +($('clayWaste') && $('clayWaste').value || 0.2);
+  return { density, waste };
+}
+function currentClay(opts) {
+  const o = Object.assign(clayOpts(), opts || {});
+  return customSpec ? estimateClay(customSpec, o) : estimateClayForShape(ui.shape, null, o);
+}
+function fmtClay(est) {
+  const g = Math.round(est.weighG);
+  const lb = est.lb >= 10 ? est.lb.toFixed(1) : est.lb >= 1 ? est.lb.toFixed(1) : est.lb.toFixed(2);
+  const gTxt = g >= 1000 ? g.toLocaleString('en-US') : String(g);
+  return `≈ ${gTxt} g / ${lb} lb`;
+}
+function syncClayRow() {
+  const est = currentClay();
+  const pct = Math.round(est.waste * 100);
+  if ($('clayOut')) $('clayOut').textContent = fmtClay(est);
+  if ($('clayIncl')) $('clayIncl').textContent = `incl. ${pct}% trim`;
+  if ($('clayRow')) {
+    $('clayRow').title = `Estimate of wet throwing clay (${Math.round(est.oz)} oz / ${est.cm3.toFixed(0)} cm³ clay + ${pct}% trim). From this pot's silhouette, wall, and foot. Not dry or fired weight.`;
+  }
+}
 function syncCustomSliders() {
   if (!customSpec) return;
   const d = dimsCm(customSpec);
@@ -1691,6 +1715,7 @@ function syncCustomSliders() {
     $('footFlare').value = fg.flare; $('footFlareOut').textContent = fg.flare.toFixed(2) + '×';
   }
   $('capOut').textContent = Math.round(d.ml);
+  syncClayRow();
   const mid = Math.max(0, customSpec.nodes.length - 2);
   const nc = $('nodeCount'); if (nc) nc.textContent = `${mid}/${MAX_MID}`;
   const hn = ensureHandleNodes(customSpec);
@@ -1835,6 +1860,8 @@ if ($('footStem')) {
   };
   $('footStem').onchange = () => onCustomChange();
 }
+if ($('clayDens')) $('clayDens').onchange = () => syncClayRow();
+if ($('clayWaste')) $('clayWaste').onchange = () => syncClayRow();
 if ($('footFlare')) {
   $('footFlare').oninput = (e) => {
     if (!customSpec) return;
@@ -2185,7 +2212,10 @@ function refreshUI() {
   $('sectionView').checked = ui.section;
   $('sectionOverlay').hidden = !ui.section;
   if (customOn) syncCustomSliders();
-  else $('dimHud').hidden = true;
+  else {
+    $('dimHud').hidden = true;
+    syncClayRow();
+  }
   if (ui.section) drawSection();
   if (gizmoGroup) {
     const want = showingGizmos();
@@ -2502,6 +2532,14 @@ window.__sim = {
     };
   },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
+  clay(opts) {
+    if (opts && $('clayDens') && opts.density != null) $('clayDens').value = (+opts.density).toFixed(2);
+    if (opts && $('clayWaste') && opts.waste != null) $('clayWaste').value = String(opts.waste);
+    const est = currentClay(opts || {});
+    syncClayRow();
+    const el = $('clayOut');
+    return Object.assign({}, est, { label: el ? el.textContent : fmtClay(est) });
+  },
   gizmoScreen(kind, index) { return gizmoScreenOf(kind, index); },
   profileScreen(y) {
     if (!customSpec) return null;

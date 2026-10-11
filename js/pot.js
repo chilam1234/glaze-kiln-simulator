@@ -2,9 +2,15 @@
 // (radius, height, normal, curvature-derived edge/cavity maps, gravity direction) used by painting and firing.
 import * as THREE from 'three';
 import { TEX_W, TEX_H } from './grid.js?v=e07da0a-20261009-0514';
-import { footAndBase, specToDef, extractCustom as extractFromPath } from './shape.js?v=e07da0a-20261009-0514';
+import { footAndBase, specToDef, extractCustom as extractFromPath, estimateClay, estimateClayFromDef, clayMassFromUnits } from './shape.js?v=e07da0a-20261009-0514';
 export { TEX_W, TEX_H };
-export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, sampleOuter, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, footWaxY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone } from './shape.js?v=e07da0a-20261009-0514';
+export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, sampleOuter, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, footWaxY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayFromDef, clayVolumeFromPath, clayMassFromUnits, extrasClayUnits, CLAY_DENSITY_G_CM3, CLAY_WASTE } from './shape.js?v=e07da0a-20261009-0514';
+
+export function estimateClayForShape(kind, spec, opts) {
+  if (spec) return estimateClay(spec, opts);
+  const fn = PROFILES[kind];
+  return fn ? estimateClayFromDef(fn(), opts) : clayMassFromUnits(0, opts);
+}
 
 const PROFILES = {
   cylinder() {
