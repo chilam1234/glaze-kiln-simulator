@@ -344,7 +344,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     flex-wrap: wrap;
   }
   .build-stamp { flex: none; margin: 0 0 4px; }
-  .fold-btn { flex: 1 0 100%; min-height: 40px; margin: 0; }
+  .fold-btn { flex: 1 0 100%; min-height: 44px; margin: 0; }
   .mobile-tabs {
     display: flex;
     flex: 1;
@@ -364,10 +364,10 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #clayRow { margin: 4px 0 2px; flex: none; }
   #clayRow b { font-size: 14px; }
   .clay-meta { margin: 0 0 6px; font-size: 11px; flex: none; }
-  .clay-opts select { min-height: 36px; }
+  .clay-opts select { min-height: 44px; }
   .clay-note { display: none; }
   .clay-section-fold { margin: 2px 0 6px; }
-  .clay-section-fold > summary { min-height: 36px; display: flex; align-items: center; font-size: 12px; }
+  .clay-section-fold > summary { min-height: 44px; display: flex; align-items: center; font-size: 12px; }
   #claySection { height: 132px; }
   .shape-subtabs {
     display: flex;
@@ -377,7 +377,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   .shape-subtabs button {
     flex: 1;
-    min-height: 40px;
+    min-height: 44px;
     font-size: 15px;
     padding: 8px 6px;
   }
@@ -476,7 +476,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     background: var(--panel-bg);
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search { padding-top: 2px; }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams button { min-height: 36px; padding: 4px 2px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams button { min-height: 40px; padding: 6px 2px; }
+  body:not(.sheet-collapsed)[data-sheet="pot"] .build-stamp { display: none; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] #glazes {
     flex: 1 1 0%;
     min-height: 0;
@@ -570,7 +571,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     font-size: 14px;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts .slider input {
-    min-height: 36px;
+    min-height: 44px;
   }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts #spoutOpts .slider:last-child {
     grid-column: 1 / -1;
@@ -715,7 +716,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
     padding: 4px 10px calc(4px + env(safe-area-inset-bottom, 0px));
   }
   .mobile-bar { grid-area: bar; margin: 0; flex-wrap: wrap; }
-  .fold-btn { flex: 1 0 100%; min-height: 36px; }
+  .fold-btn { flex: 1 0 100%; min-height: 44px; }
   .mobile-tabs button, #touchMode button { min-height: 44px; }
   .actions, body:not(.sheet-collapsed) .actions { display: contents; }
   .cone-fire {
@@ -815,8 +816,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-search { margin-bottom: 4px; padding-bottom: 4px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams { margin-bottom: 4px; padding-bottom: 4px; }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams button { min-height: 36px; padding: 4px 2px; }
-  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze { min-height: 40px; padding: 4px 6px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze-fams button { min-height: 40px; padding: 4px 2px; }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze { min-height: 44px; padding: 4px 6px; }
   body:not(.sheet-collapsed)[data-sheet="glaze"] .glaze .nm { white-space: nowrap; text-overflow: ellipsis; }
   body.sheet-collapsed .sheet { display: none; }
 }
@@ -1023,4 +1024,110 @@ body.desk-3 #kilnProgressDock[hidden] {
   padding: 0;
   border: none;
   overflow: hidden;
+}
+
+/* Interaction motion (MOTION_INTENSITY 6). Transform/opacity only; 150–280ms.
+   Stolen from: iOS sheet spring (cubic-bezier 0.32, 0.72, 0, 1), iOS press scale,
+   segmented-control underline via scaleX, chip specimen pop, fire punch. */
+:root {
+  --motion: 180ms;
+  --motion-sheet: 240ms;
+  --motion-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-out: ease-out;
+}
+
+@keyframes sheetRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+button,
+.fold-btn,
+.glaze,
+.clay-section-fold > summary,
+.desk-fold > summary {
+  transition:
+    background-color var(--motion) var(--motion-out),
+    border-color var(--motion) var(--motion-out),
+    color var(--motion) var(--motion-out),
+    transform var(--motion) var(--motion-out),
+    opacity var(--motion) var(--motion-out);
+}
+button:active:not(:disabled),
+.fold-btn:active,
+.glaze:active,
+.clay-section-fold > summary:active {
+  transform: scale(0.98);
+}
+button.fire:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.glaze .sw {
+  transition: transform var(--motion) var(--motion-ease);
+}
+.glaze:active .sw { transform: scale(0.96); }
+.glaze.active .sw { transform: scale(1.08); }
+.glaze.active:active .sw { transform: scale(0.96); }
+
+.mobile-tabs button,
+#touchMode button,
+#cone button,
+#pourMode button,
+#tools button,
+.shape-subtabs button {
+  position: relative;
+}
+.mobile-tabs button::after,
+#touchMode button::after,
+#cone button::after,
+.shape-subtabs button::after {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: 3px;
+  height: 2px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: center;
+  opacity: 0.9;
+  pointer-events: none;
+  transition: transform var(--motion) var(--motion-ease), opacity var(--motion) var(--motion-out);
+}
+.mobile-tabs button.active::after,
+#touchMode button.active::after,
+#cone button.active::after,
+.shape-subtabs button.active::after {
+  transform: scaleX(1);
+}
+
+@media (max-width: 700px), (max-height: 520px) and (max-width: 960px) {
+  body:not(.sheet-collapsed)[data-sheet="pot"] .sheet,
+  body:not(.sheet-collapsed)[data-sheet="tool"] .sheet,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] section[data-sheet="glaze"] {
+    animation: sheetRise var(--motion-sheet) var(--motion-ease);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0.01ms;
+    --motion-sheet: 0.01ms;
+  }
+  button:active:not(:disabled),
+  .fold-btn:active,
+  .glaze:active,
+  .clay-section-fold > summary:active,
+  button.fire:active:not(:disabled) {
+    transform: none;
+  }
+  .glaze:active .sw,
+  .glaze.active .sw,
+  .glaze.active:active .sw {
+    transform: none;
+  }
+  @keyframes sheetRise {
+    from, to { opacity: 1; transform: none; }
+  }
 }
