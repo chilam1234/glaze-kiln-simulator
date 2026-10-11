@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=0da9c3d-20261011-0823';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=0da9c3d-20261011-0823';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=0da9c3d-20261011-0823';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=0da9c3d-20261011-0823';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=0da9c3d-20261011-0823';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=0da9c3d-20261011-0823';
-import { BUILD, BUILD_TIME } from './build-info.js?v=0da9c3d-20261011-0823';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=dc01e09-20261011-0853';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=dc01e09-20261011-0853';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=dc01e09-20261011-0853';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=dc01e09-20261011-0853';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=dc01e09-20261011-0853';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=dc01e09-20261011-0853';
+import { BUILD, BUILD_TIME } from './build-info.js?v=dc01e09-20261011-0853';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -2146,6 +2146,19 @@ function applyLayout() {
     }
   }
   placeGlazeList();
+  const shapeDetails = $('shapeDetails');
+  if (shapeDetails) {
+    if (!mobile) shapeDetails.open = true;
+    else if (!shapeDetails.dataset.mobileDefault) {
+      shapeDetails.open = false;
+      shapeDetails.dataset.mobileDefault = '1';
+    }
+  }
+  const sectionFold = $('claySectionFold');
+  if (sectionFold && mobile && !sectionFold.dataset.mobileDefault) {
+    sectionFold.open = false;
+    sectionFold.dataset.mobileDefault = '1';
+  }
   if (!mobile) document.body.classList.remove('sheet-collapsed');
   else if (window.innerHeight <= 520) document.body.classList.add('sheet-collapsed');
   else if (!document.body.dataset.mobileInit) {
@@ -2242,6 +2255,8 @@ function refreshUI() {
   }
   document.querySelectorAll('#touchMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === ui.touchMode));
   const customOn = ui.shape === 'custom' && customSpec;
+  const shapeDetails = $('shapeDetails');
+  if (shapeDetails) shapeDetails.hidden = !customOn;
   $('customOpts').hidden = !customOn;
   $('dimHud').hidden = !customOn;
   const lock = shapeLocked();
@@ -2542,7 +2557,17 @@ window.__sim = {
     rebuildCustom();
     return true;
   },
-  setShapeGroup(name) { ui.shapeGroup = (name === 'handle' || name === 'spout' || name === 'foot') ? name : 'pot'; refreshUI(); },
+  setShapeGroup(name) {
+    ui.shapeGroup = (name === 'handle' || name === 'spout' || name === 'foot') ? name : 'pot';
+    const det = $('shapeDetails');
+    if (det && !det.hidden) det.open = true;
+    refreshUI();
+  },
+  setShapeDetails(open) {
+    const det = $('shapeDetails');
+    if (det && !det.hidden) det.open = !!open;
+    refreshUI();
+  },
   get shapeGroup() { return ui.shapeGroup; },
   getLimits() { return { ...LIMITS, maxMid: MAX_MID, foot: FOOT_LIMITS }; },
   footInfo() {

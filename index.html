@@ -6,12 +6,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="css/style.css?v=0da9c3d-20261011-0823">
+<link rel="stylesheet" href="css/style.css?v=dc01e09-20261011-0853">
 <script type="importmap">
 { "imports": {
-  "three": "./vendor/three.module.js?v=0da9c3d-20261011-0823",
-  "three/addons/controls/OrbitControls.js": "./vendor/addons/controls/OrbitControls.js?v=0da9c3d-20261011-0823",
-  "three/addons/environments/RoomEnvironment.js": "./vendor/addons/environments/RoomEnvironment.js?v=0da9c3d-20261011-0823"
+  "three": "./vendor/three.module.js?v=dc01e09-20261011-0853",
+  "three/addons/controls/OrbitControls.js": "./vendor/addons/controls/OrbitControls.js?v=dc01e09-20261011-0853",
+  "three/addons/environments/RoomEnvironment.js": "./vendor/addons/environments/RoomEnvironment.js?v=dc01e09-20261011-0853"
 } }
 </script>
 </head>
@@ -81,6 +81,8 @@
         <canvas id="claySection" aria-label="Pot cross-section showing the clay shell"></canvas>
         <p class="clay-section-cap" id="claySectionCap"></p>
       </details>
+      <details class="shape-details" id="shapeDetails" hidden>
+      <summary>Shape details</summary>
       <div id="customOpts" hidden>
         <p class="hint" id="customHint">Drag the red wall nodes or green handle nodes. Tap an outline to add a node; select one, then Delete to remove it. Grey dots pull the wall bulge. Blue/yellow grips move the teapot spout.</p>
         <div class="shape-subtabs" id="shapeSubtabs" role="tablist" aria-label="Shape group">
@@ -201,6 +203,7 @@
         </details>
         <label class="check"><input type="checkbox" id="sectionView"> Cross-section drawing</label>
       </div>
+      </details>
     </section>
     <section data-sheet="tool">
       <h2>Tool</h2>
@@ -306,6 +309,6 @@
     <canvas id="sectionCanvas"></canvas>
   </div>
 </main>
-<script type="module" src="js/main.js?v=0da9c3d-20261011-0823"></script>
+<script type="module" src="js/main.js?v=dc01e09-20261011-0853"></script>
 </body>
 </html>
