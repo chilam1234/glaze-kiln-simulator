@@ -42,19 +42,34 @@
   --font-body: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --font-head: var(--font-display);
   --font-btn: var(--font-body);
+
+  /* Liquid glass — cream frost over the pot, not a purple slab. */
+  --radius-panel: 20px;
+  --radius-card: 16px;
+  --radius-ctrl: 12px;
+  --radius-chip: 14px;
+  --radius-sw: 7px;
+  --glass: color-mix(in srgb, var(--paper) 78%, transparent);
+  --glass-strong: color-mix(in srgb, var(--paper) 86%, transparent);
+  --glass-border: color-mix(in srgb, #ffffff 48%, var(--ink) 18%);
+  --glass-hi: color-mix(in srgb, #ffffff 64%, transparent);
+  --glass-shadow: 0 10px 32px color-mix(in srgb, var(--ink) 12%, transparent);
+  --glass-inset: inset 0 1px 0 var(--glass-hi);
+  --glass-blur: 18px;
+  --panel-bg: var(--glass);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; font: 12px/1.45 var(--font-body); color: var(--text); background: var(--scene-bg); overflow: hidden; user-select: none; -webkit-user-select: none; overscroll-behavior: none; }
 /* UA [hidden] is display:none, but later .slider/.row/flex/grid rules override it. */
 [hidden] { display: none !important; }
 body { display: flex; }
-#panel { width: 292px; flex: none; display: flex; flex-direction: column; padding: 22px 22px 16px; background: var(--panel-bg); border-right: 1px solid var(--panel-border); overflow: hidden; }
+#panel { width: 292px; flex: none; display: flex; flex-direction: column; padding: 22px 22px 16px; background: var(--panel-bg); border-right: 1px solid var(--glass-border); overflow: hidden; }
 #view { flex: 1; position: relative; min-width: 0; min-height: 0; }
 #view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .view-folio { position: absolute; top: 20px; left: 22px; z-index: 2; margin: 0; pointer-events: none; font: 11px/1.3 var(--font-body); letter-spacing: .16em; text-transform: uppercase; color: var(--ink); }
 .mobile-bar, .mobile-only { display: none; }
 .sheet { display: block; flex: 1 1 0%; min-height: 240px; overflow-x: hidden; overflow-y: auto; }
-.actions, #status, .cloud, .credit { flex: none; position: relative; z-index: 2; background: var(--panel-bg); }
+.actions, #status, .cloud, .credit { flex: none; position: relative; z-index: 2; background: transparent; }
 .mast { margin: 0 0 18px; }
 .kicker { margin: 0 0 10px; font: 11px/1 var(--font-body); letter-spacing: .18em; text-transform: uppercase; color: var(--ink); }
 h1 { font: 400 48px/0.86 var(--font-display); color: var(--ink); margin: 0; letter-spacing: -0.03em; }
@@ -74,7 +89,7 @@ section { border-bottom: 1px solid var(--panel-border); padding-bottom: 8px; }
 #qualitySlot:empty { display: none; }
 .row { display: flex; gap: 6px; margin: 4px 0; }
 .row > * { flex: 1; }
-button { font: 500 12px var(--font-btn); letter-spacing: .04em; padding: 6px 8px; border: 1px solid var(--btn-border); border-radius: 0; background: var(--btn-bg); color: var(--text); cursor: pointer; }
+button { font: 500 12px var(--font-btn); letter-spacing: .04em; padding: 6px 8px; border: 1px solid var(--btn-border); border-radius: var(--radius-ctrl); background: var(--btn-bg); color: var(--text); cursor: pointer; }
 button:hover { background: var(--btn-hover); border-color: var(--amaco-navy); }
 button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 button.active { background: var(--active-bg); color: var(--active-fg); border-color: var(--active-bg); }
@@ -111,8 +126,9 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 .clay-opts { display: flex; flex-wrap: wrap; gap: 6px 12px; }
 .clay-opts label { display: inline-flex; align-items: center; gap: 4px; }
 .clay-opts select {
-  font: inherit; color: var(--ink); background: var(--paper);
+  font: inherit; color: var(--ink); background: var(--glass-strong);
   border: 1px solid var(--panel-border); padding: 2px 4px; min-height: 28px;
+  border-radius: var(--radius-ctrl);
 }
 .clay-note { color: var(--text-muted); }
 .clay-section-fold {
@@ -141,8 +157,10 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   display: block;
   width: 100%;
   height: 176px;
-  background: var(--paper);
+  background: var(--glass-strong);
   border: 1px solid var(--panel-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
 }
 .clay-section-cap {
   margin: 4px 0 0;
@@ -155,7 +173,7 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 #view { position: relative; }
 #dimHud {
   position: absolute; top: 18px; right: 18px; z-index: 2; pointer-events: none;
-  background: var(--paper); border: 1px solid var(--panel-border); border-radius: 0;
+  background: var(--glass-strong); border: 1px solid var(--glass-border); border-radius: var(--radius-card);
   padding: 6px 10px; font: 500 11px var(--font-body); letter-spacing: .04em; color: var(--ink);
 }
 #shapeTools {
@@ -169,19 +187,20 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   border: 1px solid var(--ink);
 }
 #sectionOverlay {
-  position: absolute; inset: 8% 10%; z-index: 5; background: var(--paper); border: 1px solid var(--ink); border-radius: 0;
+  position: absolute; inset: 8% 10%; z-index: 5; background: var(--glass-strong); border: 1px solid var(--ink); border-radius: var(--radius-panel);
   display: flex; flex-direction: column; overflow: hidden;
 }
 #sectionOverlay[hidden] { display: none !important; }
 #sectionOverlay canvas { flex: 1; width: 100%; min-height: 0; }
 #sectionClose {
-  position: absolute; top: 8px; right: 8px; z-index: 1; width: 36px; height: 36px; border-radius: 0;
+  position: absolute; top: 8px; right: 8px; z-index: 1; width: 36px; height: 36px; border-radius: var(--radius-ctrl);
   font-size: 20px; line-height: 1; padding: 0; background: var(--paper); color: var(--ink); border: 1px solid var(--ink);
 }
 #kilnProgress {
   position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 4;
   min-width: 220px; max-width: 80%; padding: 10px 14px;
-  background: var(--paper); border: 1px solid var(--ink); pointer-events: none;
+  background: var(--glass-strong); border: 1px solid var(--glass-border); pointer-events: none;
+  border-radius: var(--radius-card);
 }
 .kiln-progress[hidden] { display: none !important; }
 .kiln-progress-label { margin: 0 0 8px; font: 500 12px var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
@@ -195,7 +214,7 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 .gpu-note {
   position: absolute; top: 44px; left: 22px; z-index: 4; max-width: 26em; margin: 0;
   padding: 8px 10px; font: 500 12px var(--font-body); color: var(--ink);
-  background: var(--paper); border: 1px solid var(--ink);
+  background: var(--glass-strong); border: 1px solid var(--glass-border);
   pointer-events: none;
 }
 .gpu-note p { margin: 0 0 6px; }
@@ -206,7 +225,8 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 .quality-seg button { min-height: 32px; font-size: 11px; }
 .gpu-fallback {
   position: absolute; inset: 8% 8%; z-index: 8; overflow: auto;
-  padding: 22px 24px; background: var(--paper); border: 1px solid var(--ink); color: var(--ink);
+  padding: 22px 24px; background: var(--glass-strong); border: 1px solid var(--ink); color: var(--ink);
+  border-radius: var(--radius-panel);
 }
 .gpu-fallback h2 { font: 400 28px/1.1 var(--font-display); text-transform: none; letter-spacing: -0.02em; margin: 0 0 12px; }
 .gpu-fallback h3 { font: 600 12px var(--font-body); letter-spacing: .12em; text-transform: uppercase; margin: 16px 0 6px; }
@@ -218,7 +238,7 @@ body.no-gpu #view canvas { display: none; }
 .glaze-search input {
   width: 100%; min-height: 36px; padding: 7px 10px;
   font: 12px var(--font-body); color: var(--ink);
-  background: transparent; border: 1px solid var(--btn-border); border-radius: 0;
+  background: transparent; border: 1px solid var(--btn-border); border-radius: var(--radius-ctrl);
 }
 .glaze-search input::placeholder { color: var(--text-muted); }
 .sr-only {
@@ -239,8 +259,8 @@ body.no-gpu #view canvas { display: none; }
 #glazeNow { margin: 6px 0 2px; min-height: 2.4em; }
 #glazeNow b { color: var(--amaco-navy); }
 .glaze .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.glaze { display: flex; align-items: center; gap: 6px; padding: 6px 8px; min-height: 40px; min-width: 0; text-align: left; font: 500 12.5px var(--font-body); letter-spacing: 0; }
-.glaze .sw { width: 22px; height: 22px; border-radius: 0; flex: none; border: 1px solid color-mix(in srgb, var(--ink) 35%, var(--paper)); }
+.glaze { display: flex; align-items: center; gap: 6px; padding: 6px 8px; min-height: 40px; min-width: 0; text-align: left; font: 500 12.5px var(--font-body); letter-spacing: 0; border-radius: var(--radius-chip); }
+.glaze .sw { width: 22px; height: 22px; border-radius: var(--radius-sw); flex: none; border: 1px solid color-mix(in srgb, var(--ink) 35%, var(--paper)); }
 .glaze.active { outline: 1px solid var(--ink); outline-offset: -1px; background: color-mix(in srgb, var(--ink) 8%, var(--paper)); color: var(--ink); border-color: var(--ink); }
 .glaze.active:hover { background: color-mix(in srgb, var(--ink) 12%, var(--paper)); color: var(--ink); }
 .glaze.active .sw { box-shadow: inset 0 0 0 1px var(--ink); }
@@ -259,7 +279,7 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   color: var(--ink);
   background: transparent;
   border: 1px solid var(--btn-border);
-  border-radius: 0;
+  border-radius: var(--radius-ctrl);
   padding: 6px 8px;
 }
 .cloud-form input { flex: 1; min-width: 0; }
@@ -1024,6 +1044,94 @@ body.desk-3 #kilnProgressDock[hidden] {
   padding: 0;
   border: none;
   overflow: hidden;
+}
+
+/* Liquid glass chrome. Frosted cream over the canvas; radii stay consistent. */
+#panel,
+body.desk-2 #panel,
+body.desk-3 #makeCol,
+body.desk-3 #kilnCol,
+#dimHud,
+#kilnProgress,
+#sectionOverlay,
+.gpu-note,
+.gpu-fallback {
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.18);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.18);
+}
+.glaze-search,
+.glaze-fams {
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+}
+#panel {
+  box-shadow: var(--glass-inset);
+}
+body.desk-2 #panel {
+  margin: 8px 8px 8px 0;
+  border-radius: 0 var(--radius-panel) var(--radius-panel) 0;
+  border: 1px solid var(--glass-border);
+  border-left: none;
+  box-shadow: var(--glass-inset), var(--glass-shadow);
+}
+body.desk-3 #makeCol,
+body.desk-3 #kilnCol {
+  margin: 10px 8px;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  box-shadow: var(--glass-inset), var(--glass-shadow);
+}
+body.desk-3 #makeCol { margin: 10px 8px 10px 10px; }
+body.desk-3 #kilnCol { margin: 10px 10px 10px 8px; }
+body.desk-2 #kilnDock,
+body.desk-3 #kilnDock { background: transparent; }
+#dimHud,
+#kilnProgress,
+#sectionOverlay,
+.gpu-note {
+  box-shadow: var(--glass-inset), var(--glass-shadow);
+}
+.gpu-note { border-radius: var(--radius-card); }
+
+@media (max-width: 700px), (max-height: 520px) and (max-width: 960px) {
+  #panel {
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+    border-top: 1px solid var(--glass-border);
+    box-shadow: var(--glass-inset), 0 -12px 36px color-mix(in srgb, var(--ink) 12%, transparent);
+  }
+  body:not(.sheet-collapsed)[data-sheet="glaze"] section[data-sheet="glaze"] {
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.18);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.18);
+    box-shadow: var(--glass-inset), var(--glass-shadow);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass: var(--paper);
+    --glass-strong: var(--paper);
+    --glass-blur: 0px;
+    --panel-bg: var(--paper);
+  }
+  #panel,
+  body.desk-2 #panel,
+  body.desk-3 #makeCol,
+  body.desk-3 #kilnCol,
+  #dimHud,
+  #kilnProgress,
+  #sectionOverlay,
+  .gpu-note,
+  .gpu-fallback,
+  .glaze-search,
+  .glaze-fams,
+  body:not(.sheet-collapsed)[data-sheet="glaze"] section[data-sheet="glaze"] {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 /* Interaction motion (MOTION_INTENSITY 6). Transform/opacity only; 150–280ms.
