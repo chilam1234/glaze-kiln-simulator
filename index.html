@@ -6,12 +6,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="css/style.css?v=623ec39-20261011-0538">
+<link rel="stylesheet" href="css/style.css?v=8728702-20261011-0658">
 <script type="importmap">
 { "imports": {
-  "three": "./vendor/three.module.js?v=623ec39-20261011-0538",
-  "three/addons/controls/OrbitControls.js": "./vendor/addons/controls/OrbitControls.js?v=623ec39-20261011-0538",
-  "three/addons/environments/RoomEnvironment.js": "./vendor/addons/environments/RoomEnvironment.js?v=623ec39-20261011-0538"
+  "three": "./vendor/three.module.js?v=8728702-20261011-0658",
+  "three/addons/controls/OrbitControls.js": "./vendor/addons/controls/OrbitControls.js?v=8728702-20261011-0658",
+  "three/addons/environments/RoomEnvironment.js": "./vendor/addons/environments/RoomEnvironment.js?v=8728702-20261011-0658"
 } }
 </script>
 </head>
@@ -76,6 +76,11 @@
         </span>
         <span class="clay-note">Wet clay to throw. Drying/firing shrinks ~10–15%.</span>
       </p>
+      <details class="clay-section-fold" id="claySectionFold" open>
+        <summary>Section</summary>
+        <canvas id="claySection" aria-label="Pot cross-section showing the clay shell"></canvas>
+        <p class="clay-section-cap" id="claySectionCap"></p>
+      </details>
       <div id="customOpts" hidden>
         <p class="hint" id="customHint">Drag the red wall nodes or green handle nodes. Tap an outline to add a node; select one, then Delete to remove it. Grey dots pull the wall bulge. Blue/yellow grips move the teapot spout.</p>
         <div class="shape-subtabs" id="shapeSubtabs" role="tablist" aria-label="Shape group">
@@ -301,6 +306,6 @@
     <canvas id="sectionCanvas"></canvas>
   </div>
 </main>
-<script type="module" src="js/main.js?v=623ec39-20261011-0538"></script>
+<script type="module" src="js/main.js?v=8728702-20261011-0658"></script>
 </body>
 </html>

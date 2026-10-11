@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=623ec39-20261011-0538';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=623ec39-20261011-0538';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=623ec39-20261011-0538';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=623ec39-20261011-0538';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=623ec39-20261011-0538';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=623ec39-20261011-0538';
-import { BUILD, BUILD_TIME } from './build-info.js?v=623ec39-20261011-0538';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=8728702-20261011-0658';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=8728702-20261011-0658';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=8728702-20261011-0658';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=8728702-20261011-0658';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=8728702-20261011-0658';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=8728702-20261011-0658';
+import { BUILD, BUILD_TIME } from './build-info.js?v=8728702-20261011-0658';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -429,6 +429,7 @@ function applyBuiltPot(built, opts = {}) {
   if (opts.skipUi) {
     updateGizmoDataFromSpec();
     placeGizmos();
+    drawClaySection();
     requestDraw();
     return;
   }
@@ -1681,6 +1682,11 @@ function fmtClay(est) {
   const gTxt = g >= 1000 ? g.toLocaleString('en-US') : String(g);
   return `≈ ${gTxt} g / ${lb} lb`;
 }
+function fmtClayCap(est) {
+  const pct = Math.round(est.waste * 100);
+  const dens = (+est.density).toFixed(2);
+  return `${fmtClay(est)} · ${dens} g/cm³ · ${pct}% trim`;
+}
 function syncClayRow() {
   const est = currentClay();
   const pct = Math.round(est.waste * 100);
@@ -1689,6 +1695,8 @@ function syncClayRow() {
   if ($('clayRow')) {
     $('clayRow').title = `Estimate of wet throwing clay (${Math.round(est.oz)} oz / ${est.cm3.toFixed(0)} cm³ clay + ${pct}% trim). From this pot's silhouette, wall, and foot. Not dry or fired weight.`;
   }
+  if ($('claySectionCap')) $('claySectionCap').textContent = fmtClayCap(est);
+  drawClaySection();
 }
 function syncCustomSliders() {
   if (!customSpec) return;
@@ -1952,67 +1960,137 @@ document.querySelectorAll('#footVisible button, #footHidden button').forEach(b =
 });
 $('sectionView').onchange = (e) => { ui.section = e.target.checked; refreshUI(); drawSection(); };
 $('sectionClose').onclick = () => { ui.section = false; refreshUI(); };
+if ($('claySectionFold')) {
+  $('claySectionFold').addEventListener('toggle', () => { if ($('claySectionFold').open) drawClaySection(); });
+}
 
+function sectionPts() {
+  if (!pot || !pot.rows) return [];
+  const R = pot.rows, pts = [];
+  for (let k = 0; k < R.potRows; k++) pts.push({ r: R.r[k], y: R.y[k] });
+  return pts;
+}
+function pathWallAt(pts, y, win = 0.045) {
+  let outer = 0, inner = 1e9;
+  for (const p of pts) {
+    if (Math.abs(p.y - y) > win) continue;
+    if (p.r > outer) outer = p.r;
+    if (p.r > 0.015 && p.r < inner) inner = p.r;
+  }
+  if (inner > 1e8) inner = Math.max(0, outer - 0.05);
+  return { y, outer, inner, thick: Math.max(0, outer - inner) };
+}
+function sectionMeasure(pts) {
+  let maxR = 0.2, maxY = 0.02, minY = 0;
+  for (const p of pts) {
+    if (p.r > maxR) maxR = p.r;
+    if (p.y > maxY) maxY = p.y;
+    if (p.y < minY) minY = p.y;
+  }
+  const yRim = maxY - 0.02, yMid = minY + (maxY - minY) * 0.55, yBase = minY + (maxY - minY) * 0.18;
+  return {
+    maxR, maxY, minY,
+    height: maxY * UNIT_CM,
+    maxD: maxR * 2 * UNIT_CM,
+    rim: pathWallAt(pts, yRim),
+    mid: pathWallAt(pts, yMid),
+    base: pathWallAt(pts, yBase),
+  };
+}
+function paintSection(cv, opts = {}) {
+  if (!cv || !pot) return null;
+  const box = cv.getBoundingClientRect();
+  const w = opts.w || box.width, h = opts.h || box.height;
+  if (w < 8 || h < 8) return null;
+  const pts = sectionPts();
+  if (pts.length < 4) return null;
+  const m = sectionMeasure(pts);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.max(2, Math.floor(w * dpr));
+  cv.height = Math.max(2, Math.floor(h * dpr));
+  if (!opts.compact) {
+    cv.style.width = w + 'px';
+    cv.style.height = h + 'px';
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#F5F1E8';
+  ctx.fillRect(0, 0, w, h);
+  const compact = !!opts.compact;
+  const padT = compact ? 16 : 48, padB = compact ? 14 : 28, padX = compact ? 28 : 48;
+  const scale = Math.min((w - padX * 2) / (m.maxR * 2.2), (h - padT - padB) / Math.max(0.2, m.maxY * 1.08));
+  const cx = w / 2, by = h - padB;
+  const X = r => cx + r * scale, Y = y => by - y * scale;
+  const fillSide = (sign) => {
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(pts[0].y));
+    for (const p of pts) ctx.lineTo(X(sign * p.r), Y(p.y));
+    ctx.lineTo(X(0), Y(pts[pts.length - 1].y));
+    ctx.closePath();
+    ctx.fillStyle = '#C4A07A';
+    ctx.fill();
+    ctx.strokeStyle = '#2148B8';
+    ctx.lineWidth = compact ? 1.15 : 1.5;
+    ctx.stroke();
+  };
+  fillSide(1);
+  fillSide(-1);
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(cx, Y(0));
+  ctx.lineTo(cx, Y(m.maxY));
+  ctx.strokeStyle = '#999';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const est = currentClay();
+  ctx.fillStyle = '#2148B8';
+  ctx.font = compact ? '600 10px ui-monospace, monospace' : '600 13px ui-monospace, monospace';
+  ctx.fillText('SECTION', 8, compact ? 12 : 22);
+  if (!compact) {
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText(fmtClayCap(est), 8, 40);
+  }
+  const d = customSpec ? dimsCm(customSpec) : null;
+  const hLabel = d ? d.height : m.height;
+  const dLabel = m.maxD;
+  let yMaxR = m.maxY;
+  for (const p of pts) if (Math.abs(p.r - m.maxR) < 1e-3 && p.y < yMaxR) yMaxR = p.y;
+  ctx.font = compact ? '600 9px ui-monospace, monospace' : '11px sans-serif';
+  ctx.fillStyle = '#2148B8';
+  ctx.fillText(`H ${hLabel.toFixed(1)}`, Math.min(w - 46, X(m.maxR) + 6), Y(m.maxY * 0.55));
+  ctx.fillText(`Ø ${dLabel.toFixed(1)}`, cx + 6, Y(yMaxR) - 3);
+  const band = (wall, label) => {
+    if (!wall || wall.thick < 0.005) return;
+    ctx.strokeStyle = '#C65F38';
+    ctx.lineWidth = compact ? 1.1 : 1.4;
+    ctx.beginPath();
+    ctx.moveTo(X(wall.inner), Y(wall.y));
+    ctx.lineTo(X(wall.outer), Y(wall.y));
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(X(-wall.inner), Y(wall.y));
+    ctx.lineTo(X(-wall.outer), Y(wall.y));
+    ctx.stroke();
+    ctx.fillStyle = '#C65F38';
+    ctx.font = compact ? '600 9px ui-monospace, monospace' : '600 11px ui-monospace, monospace';
+    ctx.fillText(`${label} ${(wall.thick * UNIT_CM).toFixed(2)}`, X(wall.outer) + 4, Y(wall.y) + 3);
+  };
+  band(m.rim, 'rim');
+  band(m.mid, 'mid');
+  band(m.base, 'base');
+  return m;
+}
+function drawClaySection() {
+  const fold = $('claySectionFold'), cv = $('claySection');
+  if (!fold || !cv || !fold.open) return;
+  paintSection(cv, { compact: true });
+}
 function drawSection() {
   const ov = $('sectionOverlay'), cv = $('sectionCanvas');
   ov.hidden = !ui.section || !pot;
-  if (ov.hidden) return;
-  const w = ov.clientWidth, h = ov.clientHeight;
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  cv.width = Math.max(2, Math.floor(w * dpr)); cv.height = Math.max(2, Math.floor(h * dpr));
-  cv.style.width = w + 'px'; cv.style.height = h + 'px';
-  const ctx = cv.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#F5F1E8'; ctx.fillRect(0, 0, w, h);
-  const R = pot.rows, pts = [];
-  for (let k = 0; k < R.potRows; k++) pts.push([R.r[k], R.y[k]]);
-  let maxR = 0.2, maxY = 0.2;
-  for (const p of pts) { if (p[0] > maxR) maxR = p[0]; if (p[1] > maxY) maxY = p[1]; }
-  const pad = 48, scale = Math.min((w - pad * 2) / (maxR * 2.35), (h - pad * 2 - 36) / (maxY * 1.18));
-  const cx = w / 2, by = h - pad - 18;
-  const X = r => cx + r * scale, Y = y => by - y * scale;
-  ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
-  for (const p of pts) ctx.lineTo(X(p[0]), Y(p[1]));
-  ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
-  ctx.fillStyle = '#D9C4A8'; ctx.fill(); ctx.strokeStyle = '#2148B8'; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(X(0), Y(pts[0][1]));
-  for (const p of pts) ctx.lineTo(X(-p[0]), Y(p[1]));
-  ctx.lineTo(X(0), Y(pts[pts.length - 1][1])); ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(cx, Y(0)); ctx.lineTo(cx, Y(maxY)); ctx.strokeStyle = '#999'; ctx.stroke(); ctx.setLineDash([]);
-  const d = customSpec ? dimsCm(customSpec) : { height: pot.height * UNIT_CM, rim: 0, foot: 0, wall: 0, ml: 0 };
-  ctx.fillStyle = '#2148B8'; ctx.font = '600 13px ui-monospace, monospace';
-  ctx.fillText('SECTION', pad, 22);
-  ctx.fillStyle = '#2148B8'; ctx.font = '12px ui-monospace, monospace';
-  const wallNote = customSpec && customSpec.wallTaper
-    ? `wall ${d.wallBase.toFixed(2)}→${d.wallRim.toFixed(2)} cm`
-    : `wall ${(d.wall || 0).toFixed(2)} cm`;
-  ctx.fillText(`H ${d.height.toFixed(1)} cm   rim Ø ${d.rim.toFixed(1)} cm   ${wallNote}   ${Math.round(d.ml)} ml`, pad, 40);
-  if (customSpec) {
-    ctx.strokeStyle = '#c0391b'; ctx.lineWidth = 1;
-    const dim = (x0, y0, x1, y1, label, side = 1) => {
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.fillStyle = '#333'; ctx.font = '11px sans-serif';
-      ctx.fillText(label, (x0 + x1) / 2 + 4 * side, (y0 + y1) / 2 - 4);
-    };
-    const rim = customSpec.nodes[customSpec.nodes.length - 1];
-    dim(X(-rim.r), Y(rim.y) - 12, X(rim.r), Y(rim.y) - 12, `Ø ${d.rim.toFixed(1)} cm`);
-    dim(X(maxR) + 36, Y(0), X(maxR) + 36, Y(customSpec.nodes[customSpec.nodes.length - 1].y), `${d.height.toFixed(1)} cm`);
-    const band = (y, label) => {
-      const ro = radiusAt(customSpec, y);
-      const t = wallAt(customSpec, y);
-      const ri = Math.max(0.02, ro - t);
-      ctx.strokeStyle = '#C65F38'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(X(ri), Y(y)); ctx.lineTo(X(ro), Y(y)); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(X(-ri), Y(y)); ctx.lineTo(X(-ro), Y(y)); ctx.stroke();
-      ctx.fillStyle = '#C65F38'; ctx.font = '600 11px ui-monospace, monospace';
-      ctx.fillText(`${label} ${(t * UNIT_CM).toFixed(2)} cm`, X(ro) + 8, Y(y) + 4);
-    };
-    const y0 = customSpec.nodes[0].y, y1 = rim.y;
-    band(y1 - 0.02, 'rim');
-    band((y0 + y1) * 0.5, 'mid');
-    band(innerFloorY(customSpec) + 0.03, 'floor');
-  }
+  if (!ov.hidden) paintSection(cv, { compact: false, w: ov.clientWidth, h: ov.clientHeight });
+  drawClaySection();
 }
 
 const DESK3_MQ = '(min-width: 1100px)';
@@ -2216,7 +2294,7 @@ function refreshUI() {
     $('dimHud').hidden = true;
     syncClayRow();
   }
-  if (ui.section) drawSection();
+  drawSection();
   if (gizmoGroup) {
     const want = showingGizmos();
     const haveSpout = gizmoGroup.children.some(c => c.userData && c.userData.kind === 'spoutRoot');
@@ -2532,6 +2610,25 @@ window.__sim = {
     };
   },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
+  sectionInfo() {
+    const fold = $('claySectionFold'), cv = $('claySection'), cap = $('claySectionCap');
+    const pts = sectionPts();
+    const m = pts.length ? sectionMeasure(pts) : null;
+    const est = currentClay();
+    const box = cv ? cv.getBoundingClientRect() : null;
+    return {
+      open: !!(fold && fold.open),
+      caption: cap ? cap.textContent : '',
+      label: fmtClay(est),
+      clay: est,
+      pts: pts.length,
+      height: m && m.height,
+      maxD: m && m.maxD,
+      wall: m && { rim: m.rim.thick, mid: m.mid.thick, base: m.base.thick },
+      wallCm: m && { rim: m.rim.thick * UNIT_CM, mid: m.mid.thick * UNIT_CM, base: m.base.thick * UNIT_CM },
+      canvas: box && { w: box.width, h: box.height, y: box.y },
+    };
+  },
   clay(opts) {
     if (opts && $('clayDens') && opts.density != null) $('clayDens').value = (+opts.density).toFixed(2);
     if (opts && $('clayWaste') && opts.waste != null) $('clayWaste').value = (+opts.waste).toFixed(2);
