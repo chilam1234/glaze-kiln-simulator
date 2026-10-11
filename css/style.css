@@ -153,6 +153,30 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
   opacity: .55;
 }
 .clay-section-fold:not([open]) > summary::after { content: ' ▸'; }
+.shape-details {
+  flex: none;
+  margin: 4px 0 10px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 4px;
+}
+.shape-details[hidden] { display: none !important; }
+.shape-details > summary {
+  cursor: pointer;
+  font: 600 11px var(--font-body);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--amaco-navy);
+  padding: 6px 0;
+  list-style: none;
+}
+.shape-details > summary::-webkit-details-marker { display: none; }
+.shape-details > summary::after {
+  content: ' ▾';
+  font-weight: 500;
+  opacity: .55;
+}
+.shape-details:not([open]) > summary::after { content: ' ▸'; }
+.shape-details > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 #claySection {
   display: block;
   width: 100%;
@@ -388,6 +412,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   .clay-note { display: none; }
   .clay-section-fold { margin: 2px 0 6px; }
   .clay-section-fold > summary { min-height: 44px; display: flex; align-items: center; font-size: 12px; }
+  .shape-details { margin: 2px 0 6px; }
+  .shape-details > summary { min-height: 44px; display: flex; align-items: center; font-size: 12px; }
   #claySection { height: 132px; }
   .shape-subtabs {
     display: flex;
@@ -411,12 +437,12 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #customOpts .node-row button.node-del { flex-basis: auto; min-width: 72px; font-size: 14px; padding: 8px 12px; }
   #customOpts h3 { margin: 4px 0 6px; }
   #customHint { display: none; }
-  body[data-shape-group="handle"] #shapes,
-  body[data-shape-group="spout"] #shapes,
-  body[data-shape-group="foot"] #shapes,
-  body[data-shape-group="handle"] .sheet > [data-sheet="pot"] > h2,
-  body[data-shape-group="spout"] .sheet > [data-sheet="pot"] > h2,
-  body[data-shape-group="foot"] .sheet > [data-sheet="pot"] > h2 { display: none; }
+  body[data-shape-group="handle"]:has(#shapeDetails[open]) #shapes,
+  body[data-shape-group="spout"]:has(#shapeDetails[open]) #shapes,
+  body[data-shape-group="foot"]:has(#shapeDetails[open]) #shapes,
+  body[data-shape-group="handle"]:has(#shapeDetails[open]) .sheet > [data-sheet="pot"] > h2,
+  body[data-shape-group="spout"]:has(#shapeDetails[open]) .sheet > [data-sheet="pot"] > h2,
+  body[data-shape-group="foot"]:has(#shapeDetails[open]) .sheet > [data-sheet="pot"] > h2 { display: none; }
   body[data-shape-group="handle"] #customOpts h3,
   body[data-shape-group="spout"] #customOpts h3,
   body[data-shape-group="foot"] #customOpts h3 { display: none; }
@@ -539,8 +565,8 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .slider input {
     min-height: 44px;
   }
-  body:not(.sheet-collapsed)[data-sheet="pot"][data-shape-group="pot"]:has(#customOpts:not([hidden])) #shapes,
-  body:not(.sheet-collapsed)[data-sheet="pot"][data-shape-group="pot"]:has(#customOpts:not([hidden])) .sheet > [data-sheet="pot"] > h2 { display: none; }
+  body:not(.sheet-collapsed)[data-sheet="pot"][data-shape-group="pot"]:has(#shapeDetails[open] #customOpts:not([hidden])) #shapes,
+  body:not(.sheet-collapsed)[data-sheet="pot"][data-shape-group="pot"]:has(#shapeDetails[open] #customOpts:not([hidden])) .sheet > [data-sheet="pot"] > h2 { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="pot"] .node-row { display: none; }
   body:not(.sheet-collapsed)[data-sheet="pot"] #customOpts .shape-group[data-group="pot"].active {
     display: grid;
@@ -920,6 +946,10 @@ body.desk-2 #status { min-height: 1.3em; }
 body.desk-2 .credit { display: none; }
 body.desk-2 #customOpts .shape-group { display: block; }
 body.desk-2 .desk-fold > .shape-group > h3 { display: none; }
+body.desk-2 .shape-details,
+body.desk-3 .shape-details { margin: 0; padding: 0; border: none; }
+body.desk-2 .shape-details > summary,
+body.desk-3 .shape-details > summary { display: none; }
 body.desk-2 .sheet > [data-sheet="pot"],
 body.desk-2 .sheet > [data-sheet="tool"],
 body.desk-2 section[data-sheet="glaze"] { display: block; }
