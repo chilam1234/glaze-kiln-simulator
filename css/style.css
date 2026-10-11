@@ -104,6 +104,17 @@ button.fire:disabled:hover { background: var(--fire-bg); border-color: var(--fir
 .node-row button.node-del { flex: 0 0 auto; min-width: 72px; font-size: 12px; padding: 6px 10px; }
 .dims { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 0 2px; font-size: 12px; color: var(--text-muted); }
 .dims b { color: var(--amaco-navy); font-size: 15px; }
+#clayRow { margin: 8px 0 2px; }
+#clayRow small { font-weight: 500; letter-spacing: .02em; opacity: .68; margin-left: 4px; }
+#clayRow b { font-variant-numeric: tabular-nums; }
+.clay-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin: 0 0 8px; }
+.clay-opts { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.clay-opts label { display: inline-flex; align-items: center; gap: 4px; }
+.clay-opts select {
+  font: inherit; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--panel-border); padding: 2px 4px; min-height: 28px;
+}
+.clay-note { color: var(--text-muted); }
 .wall-zones { margin: 2px 0 4px; }
 #wallTaperRow { margin: 8px 0 4px; }
 #view { position: relative; }
@@ -315,6 +326,11 @@ input[type=range], input[type=checkbox] { accent-color: var(--amaco-navy); }
   #touchMode button { min-width: 44px; padding: 8px 5px; font-size: 13px; }
   #customOpts[hidden] { display: none !important; }
   #customOpts { display: flex; flex-direction: column; gap: 0; min-height: 0; }
+  #clayRow { margin: 4px 0 2px; flex: none; }
+  #clayRow b { font-size: 14px; }
+  .clay-meta { margin: 0 0 6px; font-size: 11px; flex: none; }
+  .clay-opts select { min-height: 36px; }
+  .clay-note { display: none; }
   .shape-subtabs {
     display: flex;
     gap: 6px;
