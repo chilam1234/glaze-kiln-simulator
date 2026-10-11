@@ -49,7 +49,7 @@ def save(page, name):
 def info(page):
     return page.evaluate('''() => {
       const clay = __sim.clay();
-      const sec = __sim.section();
+      const sec = __sim.sectionInfo();
       const out = document.getElementById('clayOut');
       const cap = document.getElementById('claySectionCap');
       const fold = document.getElementById('claySectionFold');
@@ -62,7 +62,8 @@ def info(page):
         cap: cap && cap.textContent,
         open: !!(fold && fold.open),
         canvas: { w: box.width, h: box.height, y: box.y },
-        overlapView: box.height > 8 && box.top < view.bottom - 4 && box.bottom > view.top + 4,
+        overlapView: box.height > 8 && box.top < view.bottom - 4 && box.bottom > view.top + 4
+          && box.left < view.right - 4 && box.right > view.left + 4,
       };
     }''')
 

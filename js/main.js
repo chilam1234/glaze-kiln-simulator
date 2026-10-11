@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=623ec39-20261011-0538';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=623ec39-20261011-0538';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=623ec39-20261011-0538';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=623ec39-20261011-0538';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=623ec39-20261011-0538';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=623ec39-20261011-0538';
-import { BUILD, BUILD_TIME } from './build-info.js?v=623ec39-20261011-0538';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=8728702-20261011-0658';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=8728702-20261011-0658';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=8728702-20261011-0658';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=8728702-20261011-0658';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=8728702-20261011-0658';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=8728702-20261011-0658';
+import { BUILD, BUILD_TIME } from './build-info.js?v=8728702-20261011-0658';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -2008,15 +2008,17 @@ function paintSection(cv, opts = {}) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   cv.width = Math.max(2, Math.floor(w * dpr));
   cv.height = Math.max(2, Math.floor(h * dpr));
-  cv.style.width = w + 'px';
-  cv.style.height = h + 'px';
+  if (!opts.compact) {
+    cv.style.width = w + 'px';
+    cv.style.height = h + 'px';
+  }
   const ctx = cv.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#F5F1E8';
   ctx.fillRect(0, 0, w, h);
   const compact = !!opts.compact;
-  const padT = compact ? 18 : 48, padB = compact ? 16 : 28, padX = compact ? 36 : 48;
-  const scale = Math.min((w - padX * 2) / (m.maxR * 2.35), (h - padT - padB) / Math.max(0.2, m.maxY * 1.12));
+  const padT = compact ? 16 : 48, padB = compact ? 14 : 28, padX = compact ? 28 : 48;
+  const scale = Math.min((w - padX * 2) / (m.maxR * 2.2), (h - padT - padB) / Math.max(0.2, m.maxY * 1.08));
   const cx = w / 2, by = h - padB;
   const X = r => cx + r * scale, Y = y => by - y * scale;
   const fillSide = (sign) => {
@@ -2025,10 +2027,10 @@ function paintSection(cv, opts = {}) {
     for (const p of pts) ctx.lineTo(X(sign * p.r), Y(p.y));
     ctx.lineTo(X(0), Y(pts[pts.length - 1].y));
     ctx.closePath();
-    ctx.fillStyle = '#D9C4A8';
+    ctx.fillStyle = '#C4A07A';
     ctx.fill();
     ctx.strokeStyle = '#2148B8';
-    ctx.lineWidth = compact ? 1.1 : 1.5;
+    ctx.lineWidth = compact ? 1.15 : 1.5;
     ctx.stroke();
   };
   fillSide(1);
@@ -2044,20 +2046,20 @@ function paintSection(cv, opts = {}) {
   const est = currentClay();
   ctx.fillStyle = '#2148B8';
   ctx.font = compact ? '600 10px ui-monospace, monospace' : '600 13px ui-monospace, monospace';
-  ctx.fillText(compact ? 'SECTION' : 'SECTION', 8, compact ? 12 : 22);
+  ctx.fillText('SECTION', 8, compact ? 12 : 22);
   if (!compact) {
     ctx.font = '12px ui-monospace, monospace';
     ctx.fillText(fmtClayCap(est), 8, 40);
   }
   const d = customSpec ? dimsCm(customSpec) : null;
   const hLabel = d ? d.height : m.height;
-  const dLabel = d && d.rim ? d.rim : m.maxD;
-  ctx.strokeStyle = '#c0391b';
-  ctx.lineWidth = 1;
+  const dLabel = m.maxD;
+  let yMaxR = m.maxY;
+  for (const p of pts) if (Math.abs(p.r - m.maxR) < 1e-3 && p.y < yMaxR) yMaxR = p.y;
   ctx.font = compact ? '600 9px ui-monospace, monospace' : '11px sans-serif';
-  ctx.fillStyle = '#333';
-  ctx.fillText(`H ${hLabel.toFixed(1)}`, X(m.maxR) + 6, Y(m.maxY * 0.5));
-  ctx.fillText(`Ø ${dLabel.toFixed(1)}`, cx - 18, Y(m.maxY) - 4);
+  ctx.fillStyle = '#2148B8';
+  ctx.fillText(`H ${hLabel.toFixed(1)}`, Math.min(w - 46, X(m.maxR) + 6), Y(m.maxY * 0.55));
+  ctx.fillText(`Ø ${dLabel.toFixed(1)}`, cx + 6, Y(yMaxR) - 3);
   const band = (wall, label) => {
     if (!wall || wall.thick < 0.005) return;
     ctx.strokeStyle = '#C65F38';
@@ -2608,7 +2610,7 @@ window.__sim = {
     };
   },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
-  section() {
+  sectionInfo() {
     const fold = $('claySectionFold'), cv = $('claySection'), cap = $('claySectionCap');
     const pts = sectionPts();
     const m = pts.length ? sectionMeasure(pts) : null;
