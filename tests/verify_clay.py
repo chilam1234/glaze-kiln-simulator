@@ -116,7 +116,7 @@ with sync_playwright() as pw:
     check(abs(waste['weighG'] / thick['weighG'] - 1.25 / 1.20) < 0.03, '25% trim weighs out more than 20%')
 
     page.set_viewport_size({'width': 390, 'height': 844})
-    page.evaluate('() => { __sim.setShape("vase"); __sim.setSheet("pot", false); }')
+    page.evaluate('() => { __sim.clay({ density: 1.8, waste: 0.2 }); __sim.setShape("vase"); __sim.setSheet("pot", false); }')
     page.wait_for_timeout(250)
     phone = page.evaluate('''() => {
       const row = document.getElementById('clayRow');
