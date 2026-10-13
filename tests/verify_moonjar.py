@@ -85,7 +85,7 @@ with sync_playwright() as pw:
     check(sil['maxR'] > sil['rimR'] * 1.6, f'belly wider than mouth ({sil["maxR"]:.3f} vs rim {sil["rimR"]:.3f})')
     check(sil['maxR'] > sil['footR'] * 1.6, f'belly wider than foot ({sil["maxR"]:.3f} vs foot {sil["footR"]:.3f})')
     check(0.28 <= sil['rimR'] <= 0.50, f'modest rim r={sil["rimR"]:.3f}')
-    check(0.28 <= sil['footR'] <= 0.62, f'modest foot r={sil["footR"]:.3f}')
+    check(0.28 <= sil['footR'] <= 0.55, f'modest foot r={sil["footR"]:.3f}')
     belly_frac = sil['bellyY'] / max(1e-6, sil['height'])
     check(0.38 <= belly_frac <= 0.62, f'equator sits mid-body (bellyY={sil["bellyY"]:.3f} / h={sil["height"]:.3f}, frac={belly_frac:.3f})')
 
@@ -152,33 +152,69 @@ with sync_playwright() as pw:
     check(vase_sil and vase_sil.get('kind') == 'vase', 'switching back to vase still works')
     check(vase_sil['height'] > sil['height'] * 1.05, f'vase stays taller than the moon jar ({vase_sil["height"]:.2f} vs {sil["height"]:.2f})')
 
-    page.set_viewport_size({'width': 390, 'height': 844})
-    page.evaluate('() => { __sim.setShape("moonjar"); __sim.setSheet("pot", false); __sim.setView(18, 8); }')
-    page.wait_for_timeout(350)
-    phone = page.evaluate('''() => {
+    page.close()
+
+    phone = browser.new_page(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    phone.on('pageerror', lambda e: check(False, f'phone pageerror: {e}'))
+    phone.goto(url)
+    phone.wait_for_function('window.__sim && window.__sim.state === "raw"', timeout=120000)
+    phone.wait_for_timeout(300)
+    phone.evaluate('() => { __sim.setShape("moonjar"); __sim.setSheet("pot", false); __sim.setView(18, 8); }')
+    phone.wait_for_timeout(350)
+    grid = phone.evaluate('''() => {
       const btn = document.querySelector('button[data-shape="moonjar"]');
       const r = btn.getBoundingClientRect();
       const det = document.getElementById('shapeDetails');
       return {
         label: btn.textContent.trim(),
-        on: btn.classList.contains('on') || btn.classList.contains('active'),
+        on: btn.classList.contains('active'),
         h: r.height, vis: r.height > 8,
-        details: !!(det && !det.hidden),
+        detailsHidden: !!(det && det.hidden),
         clay: document.getElementById('clayOut').textContent,
       };
     }''')
-    print('phone', phone)
-    check(phone['label'] == 'Moon jar' and phone['vis'], f'phone grid shows Moon jar ({phone})')
-    check(phone['on'], 'Moon jar is the active preset on the phone')
-    check(phone['details'], 'Shape details accordion is still on the phone Pot sheet')
-    save(page, 'moonjar-phone.png')
+    print('phone', grid)
+    check(grid['label'] == 'Moon jar' and grid['vis'], f'phone grid shows Moon jar ({grid})')
+    check(grid['on'], 'Moon jar is the active preset on the phone')
+    check(grid['detailsHidden'], 'Moon jar hides Shape details until Custom, like other presets')
+    save(phone, 'moonjar-phone.png')
 
-    page.evaluate('() => __sim.setSheet("pot", true)')
-    page.wait_for_timeout(250)
-    page.evaluate('() => __sim.setView(22, 6)')
-    page.wait_for_timeout(200)
-    save(page, 'moonjar-phone-view.png')
+    phone.evaluate('() => { __sim.setShape("custom"); __sim.setSheet("pot", false); }')
+    phone.wait_for_timeout(280)
+    custom_phone = phone.evaluate('''() => {
+      const det = document.getElementById('shapeDetails');
+      const wall = document.getElementById('customWall');
+      return {
+        hidden: !!(det && det.hidden),
+        open: !!(det && det.open),
+        source: (__sim.getCustom() || {}).source,
+        wallH: wall ? wall.getBoundingClientRect().height : 0,
+      };
+    }''')
+    print('phone custom', custom_phone)
+    check(not custom_phone['hidden'] and custom_phone['source'] == 'moonjar',
+          f'Custom from Moon jar shows Shape details ({custom_phone})')
+    phone.evaluate('() => __sim.setShapeDetails(true)')
+    phone.wait_for_timeout(200)
+    opened = phone.evaluate('''() => {
+      const det = document.getElementById('shapeDetails');
+      const wall = document.getElementById('customWall');
+      const cs = wall && getComputedStyle(wall);
+      return {
+        open: !!(det && det.open),
+        wallVis: !!(wall && wall.getBoundingClientRect().height > 4 && cs.display !== 'none'),
+      };
+    }''')
+    check(opened['open'] and opened['wallVis'], f'Shape details wall slider works on the moon jar ({opened})')
+    save(phone, 'moonjar-phone-details.png')
 
+    phone.evaluate('() => { __sim.setShape("moonjar"); __sim.setSheet("pot", true); }')
+    phone.wait_for_timeout(250)
+    phone.evaluate('() => __sim.setView(22, 6)')
+    phone.wait_for_timeout(200)
+    save(phone, 'moonjar-phone-view.png')
+
+    phone.close()
     browser.close()
 
 httpd.shutdown()

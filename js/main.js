@@ -2646,10 +2646,9 @@ window.__sim = {
       if (R.y[k] > maxY) { maxY = R.y[k]; rimR = R.r[k]; }
       if (R.y[k] < minY) minY = R.y[k];
     }
-    const h = Math.max(1e-6, maxY - minY);
     for (let k = 0; k < n; k++) {
-      const t = (R.y[k] - minY) / h;
-      if (t > 0.02 && t < 0.14 && R.r[k] > footR) footR = R.r[k];
+      if (R.y[k] > 0.085) continue;
+      if (R.r[k] > footR) footR = R.r[k];
     }
     return {
       kind: pot.kind, height: pot.height,
