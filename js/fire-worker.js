@@ -1,9 +1,9 @@
 // Kiln thread. Owns one host GlazeState and runs the same fire() the page used to run inline,
 // so orbiting the pot stays on the page thread. Messages move copies of the thickness maps;
 // the page keeps the originals for Unfire.
-import { TEX_W, TEX_H } from './grid.js?v=dc01e09-20261011-0853';
-import { GLAZES } from './glazes.js?v=dc01e09-20261011-0853';
-import { GlazeState, setFireCone } from './sim.js?v=dc01e09-20261011-0853';
+import { TEX_W, TEX_H } from './grid.js?v=f4d7a66-20261013-0424';
+import { GLAZES } from './glazes.js?v=f4d7a66-20261013-0424';
+import { GlazeState, setFireCone } from './sim.js?v=f4d7a66-20261013-0424';
 
 const N = TEX_W * TEX_H;
 const NG = GLAZES.length;

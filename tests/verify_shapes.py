@@ -15,6 +15,7 @@ PLAN = {
   'bottle':   ('Bottle: tenmoku + ash', ['__sim.pour("tenmoku", 1.0, "below", 0.6)', '__sim.pour("ash", 0.56, "above", 0.9)'], (20, 10)),
   'jar':      ('Jar: matte + celadon', ['__sim.pour("matte", 0.5, "below", 0.6)', '__sim.pour("celadon", 0.38, "above", 0.8)'], (20, 16)),
   'mug':      ('Mug: matte + cobalt, copper handle', ['__sim.pour("matte", 0.45, "below", 0.6)', '__sim.pour("cobalt", 0.4, "above", 0.6)'], (55, 14)),
+  'moonjar':  ('Moon jar: celadon', ['__sim.pour("celadon", 1.0, "below", 0.72)'], (18, 10)),
 }
 errors, logs, results = [], [], {}
 with sync_playwright() as pw:
@@ -56,8 +57,11 @@ for shape, (label, _, _) in PLAN.items():
     im = Image.open(os.path.join(OUT, f'shape-{shape}.png')).convert('RGB'); w, h = im.size
     im = im.crop((int(w * 0.14), int(h * 0.02), int(w * 0.86), int(h * 0.98))).resize((520, int(520 * h * 0.96 / (w * 0.72))))
     ImageDraw.Draw(im).text((12, 10), label, fill=(40, 34, 30), font=font); tiles.append(im)
-tw, th = tiles[0].size; grid = Image.new('RGB', (tw * 4 + 30, th * 2 + 10), (255, 255, 255))
-for i, im in enumerate(tiles): grid.paste(im, ((i % 4) * (tw + 10), (i // 4) * (th + 10)))
+tw, th = tiles[0].size
+cols = 3
+rows = (len(tiles) + cols - 1) // cols
+grid = Image.new('RGB', (tw * cols + 10 * (cols - 1), th * rows + 10 * (rows - 1)), (255, 255, 255))
+for i, im in enumerate(tiles): grid.paste(im, ((i % cols) * (tw + 10), (i // cols) * (th + 10)))
 grid.save(os.path.join(OUT, 'shapes-grid.png'))
 for s in list(PLAN) + ['mug-side']: print('saved', os.path.join(OUT, f'shape-{s}.png'))
 print('saved', os.path.join(OUT, 'shapes-grid.png'), os.path.join(OUT, 'shapes-panel.png'))
