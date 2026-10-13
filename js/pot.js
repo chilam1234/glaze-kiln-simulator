@@ -1,10 +1,10 @@
 // Pot shapes: profile curves -> custom lathe geometry with arc-length UVs, plus per-row geometric maps
 // (radius, height, normal, curvature-derived edge/cavity maps, gravity direction) used by painting and firing.
 import * as THREE from 'three';
-import { TEX_W, TEX_H } from './grid.js?v=dc01e09-20261011-0853';
-import { footAndBase, specToDef, extractCustom as extractFromPath, estimateClay, estimateClayFromDef, clayMassFromUnits } from './shape.js?v=dc01e09-20261011-0853';
+import { TEX_W, TEX_H } from './grid.js?v=f4d7a66-20261013-0424';
+import { footAndBase, specToDef, extractCustom as extractFromPath, estimateClay, estimateClayFromDef, clayMassFromUnits } from './shape.js?v=f4d7a66-20261013-0424';
 export { TEX_W, TEX_H };
-export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, sampleOuter, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, footWaxY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayFromDef, clayVolumeFromPath, clayMassFromUnits, extrasClayUnits, CLAY_DENSITY_G_CM3, CLAY_WASTE } from './shape.js?v=dc01e09-20261011-0853';
+export { UNIT_CM, dimsCm, capacityMl, cloneSpec, addNode, addNodeAt, removeNode, removeNodeAt, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, MIN_NODE_GAP, radiusAt, sampleOuter, SPOUT_LIMITS, spoutParams, spoutWorld, spoutAzimuth, handleAzimuth, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, defaultHandleNodes, ensureHandleNodes, resetHandleNodes, snapHandleEnds, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode, addHandleNodeAtPoint, removeHandleNode, handleWorldNodes, sampleHandleWorld, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, footWaxY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayFromDef, clayVolumeFromPath, clayMassFromUnits, extrasClayUnits, CLAY_DENSITY_G_CM3, CLAY_WASTE } from './shape.js?v=f4d7a66-20261013-0424';
 
 export function estimateClayForShape(kind, spec, opts) {
   if (spec) return estimateClay(spec, opts);
@@ -119,6 +119,21 @@ const PROFILES = {
     p.bezierCurveTo(1.14, 0.95, 0.95, 0.36, 0.65, 0.27);
     p.quadraticCurveTo(0.5, 0.24, 0.0, 0.24);
     return { path: p, height: 1.96, waxY: 0.14, ridges: 0.0022 };
+  },
+  moonjar() {
+    // Korean moon jar (달항아리): nearly spherical whiteware, modest foot and mouth
+    const p = new THREE.Path();
+    footAndBase(p, { recessR: 0.22, footIn: 0.28, footOut: 0.38, wallR: 0.44, wallY: 0.115 });
+    p.bezierCurveTo(0.78, 0.22, 1.06, 0.56, 1.06, 1.04);   // lower hemisphere to the equator
+    p.bezierCurveTo(1.06, 1.52, 0.80, 1.82, 0.50, 1.92);   // upper hemisphere, slight shoulder
+    p.quadraticCurveTo(0.40, 1.98, 0.38, 2.03);            // short neck
+    p.quadraticCurveTo(0.375, 2.07, 0.355, 2.08);          // modest rim
+    p.quadraticCurveTo(0.332, 2.082, 0.328, 2.03);
+    p.quadraticCurveTo(0.345, 1.97, 0.44, 1.91);           // inner neck
+    p.bezierCurveTo(0.74, 1.80, 0.985, 1.50, 0.985, 1.04); // inner upper
+    p.bezierCurveTo(0.985, 0.58, 0.72, 0.26, 0.38, 0.235); // inner lower
+    p.quadraticCurveTo(0.28, 0.225, 0.0, 0.22);
+    return { path: p, height: 2.08, waxY: 0.125, ridges: 0.0016 };
   },
   mug() {
     const p = new THREE.Path();

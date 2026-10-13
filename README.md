@@ -10,7 +10,7 @@ No build step. Serve the folder and open it:
 
 three.js r165 is vendored in `vendor/` and loaded through the import map in index.html, so it works offline.
 
-- `js/pot.js`: lathe profiles (cylinder, bowl, vase, plate, chawan, bottle, jar, mug, plus a Custom silhouette) with foot ring, rim, inner wall and throwing ridges; optional C-loop / side handle and pouring-lip / teapot spout; arc-length UVs;
+- `js/pot.js`: lathe profiles (cylinder, bowl, vase, plate, chawan, bottle, jar, mug, moon jar, plus a Custom silhouette) with foot ring, rim, inner wall and throwing ridges; optional C-loop / side handle and pouring-lip / teapot spout; arc-length UVs;
   per-row curvature -> edge (convex) and cavity (concave) maps, gravity direction/steepness, wax line.
 - `js/shape.js`: custom profile (quadratic nodes + bulges), extract-from-preset, capacity in ml.
 - `js/glazes.js`: glaze library (raw colour, fired colour/opacity/roughness stops by thickness, fluidity, crackle,

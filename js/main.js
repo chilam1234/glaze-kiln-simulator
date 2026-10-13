@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=dc01e09-20261011-0853';
-import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=dc01e09-20261011-0853';
-import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=dc01e09-20261011-0853';
-import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=dc01e09-20261011-0853';
-import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=dc01e09-20261011-0853';
-import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=dc01e09-20261011-0853';
-import { BUILD, BUILD_TIME } from './build-info.js?v=dc01e09-20261011-0853';
+import { buildPot, buildCustomPot, extractCustom, TEX_W, TEX_H, UNIT_CM, dimsCm, cloneSpec, addNode, addNodeAt, removeNode, setHeight, setRimR, setFootR, constrainNode, constrainBulge, LIMITS, MAX_MID, radiusAt, spoutParams, spoutWorld, setSpoutHeight, setSpoutTip, HANDLE_MIN, HANDLE_MAX, ensureHandleNodes, resetHandleNodes, setHandleWidth, setHandlePlacement, constrainHandleNode, addHandleNode as addHandleNodeSpec, addHandleNodeAtPoint, removeHandleNode as removeHandleNodeSpec, handleWorldNodes, sampleHandleWorld, handleAzimuth, FOOT_LIMITS, FOOT_STYLES, ensureFoot, footGeom, innerFloorY, setFootH, setFootStyle, ensureWall, wallAt, setWall, setWallZone, estimateClay, estimateClayForShape } from './pot.js?v=f4d7a66-20261013-0424';
+import { GLAZES, FAMILIES, cone10Note, CONE10 } from './glazes.js?v=f4d7a66-20261013-0424';
+import { GlazeState, GLAZE_INDEX, setFireCone, smokeGlazes, MAP_CAP } from './sim.js?v=f4d7a66-20261013-0424';
+import { peekUser, restoreSession, sendLink, signOut, saveRecipe, publishRecipe, loadShared, loadOwned, listMine, enabledSocial, socialSignIn, socialLabel } from './cloud.js?v=f4d7a66-20261013-0424';
+import { makePotMaterial, makeSimplePotMaterial } from './material.js?v=f4d7a66-20261013-0424';
+import { probeGpu, installNoGpu, showLiteBanner, hideLiteBanner, bindContextEvents, pixelRatioFor, infoOf, classifyRenderer, readQualityPref, saveQualityPref, decideLite, wantAntialias } from './webgl.js?v=f4d7a66-20261013-0424';
+import { BUILD, BUILD_TIME } from './build-info.js?v=f4d7a66-20261013-0424';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
 const setStatus = (t) => { statusEl.textContent = t; };
+const SHAPE_TITLE = { moonjar: 'Moon jar' };
+const shapeTitle = (kind) => SHAPE_TITLE[kind] || (kind[0].toUpperCase() + kind.slice(1));
 const MOBILE_MQ = '(max-width: 700px), (max-height: 520px) and (max-width: 960px)';
 const isMobileLayout = () => window.matchMedia(MOBILE_MQ).matches;
 (function showBuildStamp() {
@@ -502,7 +504,7 @@ function setShape(kind) {
       refreshUI();
     }
     const d = dimsCm(customSpec);
-    setStatus(`Custom ${src} — drag the red nodes. ${Math.round(d.ml)} ml.`);
+    setStatus(`Custom ${src === 'moonjar' ? 'Moon jar' : src} — drag the red nodes. ${Math.round(d.ml)} ml.`);
     noteShape();
     return;
   }
@@ -512,7 +514,7 @@ function setShape(kind) {
   selectedHandle = -1;
   ui.shape = kind;
   applyBuiltPot(buildPot(kind, meshOpts()), { keepGlaze: false });
-  setStatus(`${kind[0].toUpperCase() + kind.slice(1)} ready. Paint some glaze, then fire.`);
+  setStatus(`${shapeTitle(kind)} ready. Paint some glaze, then fire.`);
   if (same) {
     if (historyArmed && !historyLock) steps.push({ kind: 'clear' });
     refreshUI();
@@ -2635,6 +2637,26 @@ window.__sim = {
     };
   },
   getDims() { return customSpec ? dimsCm(customSpec) : null; },
+  silhouette() {
+    if (!pot || !pot.rows) return null;
+    const R = pot.rows, n = R.potRows;
+    let maxR = 0, maxY = -1e9, minY = 1e9, rimR = 0, bellyY = 0, footR = 0;
+    for (let k = 0; k < n; k++) {
+      if (R.r[k] > maxR) { maxR = R.r[k]; bellyY = R.y[k]; }
+      if (R.y[k] > maxY) { maxY = R.y[k]; rimR = R.r[k]; }
+      if (R.y[k] < minY) minY = R.y[k];
+    }
+    const h = Math.max(1e-6, maxY - minY);
+    for (let k = 0; k < n; k++) {
+      const t = (R.y[k] - minY) / h;
+      if (t > 0.02 && t < 0.14 && R.r[k] > footR) footR = R.r[k];
+    }
+    return {
+      kind: pot.kind, height: pot.height,
+      maxR, maxD: maxR * 2, maxY, minY, bellyY, rimR, footR,
+      ratio: (maxR * 2) / Math.max(1e-6, pot.height),
+    };
+  },
   sectionInfo() {
     const fold = $('claySectionFold'), cv = $('claySection'), cap = $('claySectionCap');
     const pts = sectionPts();
